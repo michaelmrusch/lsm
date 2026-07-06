@@ -2,22 +2,24 @@
 
 A tiny mobile-first webapp for coordinating shared study tables at university.
 
-The first person to arrive reserves some tables and creates a **space** in the app
-(room name + number of tables + seats per table). They share the link/code with the
-group. Everyone else taps a table and says roughly when they'll arrive. The person
-on site sees live how many people are actually coming — and can **give back** the
-tables nobody needs.
+A **space** is a persistent study group with a share code that never changes.
+Each morning, the first person to arrive reserves some tables and *sets up* the
+space in the app — everyone in the group gets a push notification and sees live
+who's coming, when, and how many seats are left. The person on site can **give
+back** the tables nobody needs. Ending the day's session clears the tables but
+keeps the group, its code and its members for tomorrow.
 
 ## Features
 
 - **No-friction accounts** — name + PIN + a personal color, auto-registered on first sign-in
 - **Live sync** — every phone updates instantly via Server-Sent Events
 - **Top-down room view** — tables are drawn as split rectangles, one segment per seat, filled with each person's color (outlined = coming, solid = arrived)
-- **Per-table setup** — the owner sets each table's seat count individually, drags tables around the room, and rotates them 90°
-- **Push notifications** — installable PWA; get notified when someone joins, arrives or leaves (on iPhone: add to Home Screen first, then enable — iOS requirement)
+- **Per-table setup** — the session manager sets each table's seat count individually, drags tables around the room, rotates them 90°, and adds/removes tables mid-session
+- **Guest seats** — reserve a seat for a friend without the app, shown as "friend of ‹member›"
+- **Push notifications** — installable PWA; the whole group is notified when someone sets up the space in the morning, participants when people join/arrive/leave (on iPhone: add to Home Screen first, then enable — iOS requirement)
 - **Smart summary** — "1 here · 2 coming (next ~16:30) · 5 free seats" plus a hint naming the tables that are still empty
-- **Share codes** — 6-character codes / shareable links per space
-- **Auto-expiry** — spaces close themselves after 16 hours (one study day)
+- **Persistent groups** — 6-character codes / shareable links that stay valid; your home screen shows each group's live status
+- **Auto-reset** — sessions end themselves after 16 hours (one study day); the group stays
 
 ## Local development
 
@@ -78,14 +80,19 @@ docker compose up -d --build
 POST   /api/auth/session                       register-or-login {username, pin}
 POST   /api/auth/logout
 GET    /api/auth/me
-POST   /api/spaces                             {name, tableCount, defaultCapacity} → {code}
-GET    /api/spaces/:code                       full space state
+POST   /api/spaces                             {name, tableCount, defaultCapacity} → {code} (create group + first session)
+GET    /api/me/spaces                          your groups with live stats
+GET    /api/spaces/:code                       full space state (also joins you to the group)
 GET    /api/spaces/:code/events                SSE live updates
+POST   /api/spaces/:code/sessions              {tableCount, defaultCapacity} set up today's session (notifies members)
+PATCH  /api/spaces/:code                       {status: 'idle'} end session (manager)
 POST   /api/spaces/:code/tables/:id/claims     {eta: 'now' | 'HH:MM'} join/move
-PATCH  /api/spaces/:code/claims/mine           {eta} or {status: 'arrived'}
-DELETE /api/spaces/:code/claims/mine           leave
-PATCH  /api/spaces/:code/tables/:id            {released?, capacity?, x?, y?, rot?} (owner)
-PATCH  /api/spaces/:code                       {status: 'closed'} (owner)
+POST   /api/spaces/:code/tables/:id/guests     {name, eta} reserve for a friend
+PATCH  /api/spaces/:code/claims/:id            {eta} or {status: 'arrived'}
+DELETE /api/spaces/:code/claims/:id            free the seat
+POST   /api/spaces/:code/tables                add a table (manager)
+DELETE /api/spaces/:code/tables/:id            remove an empty table (manager)
+PATCH  /api/spaces/:code/tables/:id            {released?, capacity?, x?, y?, rot?} (manager)
 GET    /api/push/key                           VAPID public key
 POST   /api/push/subscribe                     {subscription} enable notifications
 POST   /api/push/unsubscribe                   {endpoint}
