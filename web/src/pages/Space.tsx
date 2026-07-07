@@ -239,36 +239,42 @@ export function Space() {
   };
 
   return (
-    <div className="app">
-      {header}
+    <div className="app space-layout">
+      <div className="space-main">
+        {header}
 
-      <SummaryBar state={state} />
+        <SummaryBar state={state} />
 
-      <Room tables={tables} currentUserId={user.id} onTap={(id) => setSelectedId(id)} onMove={actions.move} />
-      <div className="room-toolbar">
-        <p className="hint room-hint">Tap a table to set it up — drag to move it, pinch or scroll to zoom.</p>
-        <button
-          className="btn btn-secondary btn-compact"
-          onClick={() => void mutate(`/api/spaces/${code}/tables`, { method: 'POST' }, { close: false })}
-        >
-          ➕ Add table
-        </button>
+        <div className="room-wrap">
+          <Room tables={tables} currentUserId={user.id} onTap={(id) => setSelectedId(id)} onMove={actions.move} />
+        </div>
+        <div className="room-toolbar">
+          <p className="hint room-hint">Tap a table to set it up — drag to move it, pinch or scroll to zoom.</p>
+          <button
+            className="btn btn-secondary btn-compact"
+            onClick={() => void mutate(`/api/spaces/${code}/tables`, { method: 'POST' }, { close: false })}
+          >
+            ➕ Add table
+          </button>
+        </div>
       </div>
 
-      <PeopleList tables={tables} />
+      <aside className="space-side">
+        <PeopleList tables={tables} />
 
-      {canManageSession && (
-        <button
-          className="btn btn-danger end-space"
-          onClick={() => {
-            if (window.confirm('End today\'s session? Tables and seats are cleared — the space and its code stay.')) {
-              void mutate(`/api/spaces/${code}`, { method: 'PATCH', body: { status: 'idle' } });
-            }
-          }}
-        >
-          End today's session
-        </button>
-      )}
+        {canManageSession && (
+          <button
+            className="btn btn-danger end-space"
+            onClick={() => {
+              if (window.confirm('End today\'s session? Tables and seats are cleared — the space and its code stay.')) {
+                void mutate(`/api/spaces/${code}`, { method: 'PATCH', body: { status: 'idle' } });
+              }
+            }}
+          >
+            End today's session
+          </button>
+        )}
+      </aside>
 
       {selectedTable && (
         <ClaimSheet

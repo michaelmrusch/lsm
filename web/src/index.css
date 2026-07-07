@@ -880,6 +880,65 @@ body {
   align-self: center;
 }
 
+/* ---------- desktop layout for the space view ---------- */
+
+/* On phones the wrappers dissolve so everything stacks exactly as before. */
+.space-main,
+.space-side,
+.room-wrap {
+  display: contents;
+}
+
+@media (min-width: 1000px) {
+  .app.space-layout {
+    max-width: 1280px;
+    height: 100dvh;
+    padding: 20px 24px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    column-gap: 24px;
+    overflow: hidden;
+  }
+
+  .space-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .space-side {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .space-side .people,
+  .space-side .end-space {
+    margin-top: 0;
+  }
+
+  .room-wrap {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    justify-content: center;
+  }
+
+  .space-layout .room {
+    height: 100%;
+    width: auto;
+    aspect-ratio: 3 / 4;
+    max-width: 100%;
+  }
+
+  .space-layout .room-toolbar {
+    margin-top: 12px;
+  }
+}
+
 /* ---------- admin ---------- */
 
 .admin-row {
