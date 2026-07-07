@@ -928,10 +928,14 @@ body {
   }
 
   .space-layout .room {
-    height: 100%;
-    width: auto;
-    aspect-ratio: 3 / 4;
-    max-width: 100%;
+    width: 100%;
+    height: auto;
+    /* Landscape on desktop: the left column is wide, so a portrait room
+       left big empty gutters and shrank the tables. Fill the column width
+       and cap the height so it never outgrows the viewport. */
+    aspect-ratio: 16 / 10;
+    max-height: 100%;
+    align-self: center;
   }
 
   .space-layout .room-toolbar {
