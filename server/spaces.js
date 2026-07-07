@@ -26,9 +26,10 @@ function addMember(spaceId, userId) {
   db.prepare('INSERT OR IGNORE INTO space_members (space_id, user_id) VALUES (?, ?)').run(spaceId, userId);
 }
 
-// The session opener and the group owner manage tables and the session.
-function canManageSpace(space, userId) {
-  return space.owner_id === userId || space.opened_by === userId;
+// The session opener, the group owner and admins manage the session
+// and other people's seats.
+function canManageSpace(space, user) {
+  return space.owner_id === user.id || space.opened_by === user.id || !!user.is_admin;
 }
 
 function getClaims(spaceId) {
@@ -269,7 +270,7 @@ spacesRouter.post('/:code/sessions', (req, res) => {
 spacesRouter.patch('/:code', (req, res) => {
   const space = requireOpenSpace(req, res);
   if (!space) return;
-  if (!canManageSpace(space, req.user.id)) {
+  if (!canManageSpace(space, req.user)) {
     return res.status(403).json({ error: 'Only the person who set up the space (or the group owner) can do that.' });
   }
   if (req.body?.status !== 'idle') return res.status(400).json({ error: 'Only ending the session is supported.' });
@@ -349,7 +350,7 @@ spacesRouter.patch('/:code/claims/:claimId', (req, res) => {
     WHERE c.id = ? AND t.space_id = ?
   `).get(req.params.claimId, space.id);
   if (!claim) return res.status(404).json({ error: 'Seat not found.' });
-  if (claim.user_id !== req.user.id && !canManageSpace(space, req.user.id)) {
+  if (claim.user_id !== req.user.id && !canManageSpace(space, req.user)) {
     return res.status(403).json({ error: 'You cannot change this seat.' });
   }
 
@@ -385,7 +386,7 @@ spacesRouter.delete('/:code/claims/:claimId', (req, res) => {
     WHERE c.id = ? AND t.space_id = ?
   `).get(req.params.claimId, space.id);
   if (!claim) return res.status(404).json({ error: 'Seat not found.' });
-  if (claim.user_id !== req.user.id && !canManageSpace(space, req.user.id)) {
+  if (claim.user_id !== req.user.id && !canManageSpace(space, req.user)) {
     return res.status(403).json({ error: 'You cannot change this seat.' });
   }
   db.prepare('DELETE FROM claims WHERE id = ?').run(claim.id);

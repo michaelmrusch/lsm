@@ -133,7 +133,8 @@ export function Space() {
   }
 
   const { space, tables } = state;
-  const canManageSession = space.status === 'open' && (space.openedBy === user.id || space.ownerId === user.id);
+  const canManageSession =
+    space.status === 'open' && (space.openedBy === user.id || space.ownerId === user.id || user.isAdmin);
   const canDeleteSpace = space.ownerId === user.id || user.isAdmin;
   const selectedTable = tables.find((t) => t.id === selectedId) ?? null;
 
