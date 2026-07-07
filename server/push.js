@@ -38,7 +38,10 @@ export function notifyUsers(userIds, payload) {
     // the device and shows it now. Without this the Web Push default urgency is
     // "normal", which Android holds in Doze until the phone next wakes on its
     // own — so notifications arrive late or not at all.
-    webpush.sendNotification(JSON.parse(row.subscription), data, { urgency: 'high' }).catch((err) => {
+    // TTL: these messages coordinate a single study day — if a phone is
+    // unreachable for hours, delivering them later would only confuse
+    // (the push-service default keeps trying for ~4 weeks).
+    webpush.sendNotification(JSON.parse(row.subscription), data, { urgency: 'high', TTL: 3 * 3600 }).catch((err) => {
       // 404/410 = the browser dropped this subscription; forget it.
       if (err.statusCode === 404 || err.statusCode === 410) {
         db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(row.endpoint);
