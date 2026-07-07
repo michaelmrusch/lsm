@@ -8,6 +8,40 @@ const TOKEN_TTL_SECONDS = 90 * 24 * 3600;
 
 export const authRouter = Router();
 
+// Failed sign-ins are throttled per name and per IP: PINs are only 4–8
+// digits, so without a limit an attacker who knows a username can walk
+// the whole PIN space — and every attempt burns a synchronous bcrypt
+// compare on the event loop. In-memory state is fine for this
+// single-process server.
+const FAIL_WINDOW_MS = 15 * 60 * 1000;
+const MAX_FAILURES = 10;
+const failures = new Map(); // key -> timestamps of recent failures
+
+function recentFailures(key) {
+  const cutoff = Date.now() - FAIL_WINDOW_MS;
+  const list = (failures.get(key) ?? []).filter((t) => t > cutoff);
+  if (list.length) failures.set(key, list);
+  else failures.delete(key);
+  return list.length;
+}
+
+function recordFailure(keys) {
+  for (const key of keys) {
+    const list = failures.get(key) ?? [];
+    list.push(Date.now());
+    failures.set(key, list);
+  }
+}
+
+setInterval(() => {
+  const cutoff = Date.now() - FAIL_WINDOW_MS;
+  for (const [key, list] of failures) {
+    const keep = list.filter((t) => t > cutoff);
+    if (keep.length) failures.set(key, keep);
+    else failures.delete(key);
+  }
+}, 60 * 60 * 1000).unref();
+
 function setSessionCookie(req, res, userId) {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
@@ -48,9 +82,15 @@ authRouter.post('/session', (req, res) => {
     return res.status(400).json({ error: 'PIN must be 4–8 digits.' });
   }
 
+  const failKeys = [`ip:${req.ip}`, `name:${username.toLowerCase()}`];
+  if (failKeys.some((k) => recentFailures(k) >= MAX_FAILURES)) {
+    return res.status(429).json({ error: 'Too many attempts — wait a few minutes and try again.' });
+  }
+
   const existing = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   if (existing) {
     if (!bcrypt.compareSync(pin, existing.pin_hash)) {
+      recordFailure(failKeys);
       return res.status(401).json({ error: 'Wrong PIN for this name (or the name is taken by someone else).' });
     }
     // Returning user picked a different color on the sign-in screen: honor it.
