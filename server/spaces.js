@@ -396,7 +396,8 @@ spacesRouter.delete('/:code/claims/:claimId', (req, res) => {
   }
   db.prepare('DELETE FROM claims WHERE id = ?').run(claim.id);
   const who = claim.guest_name ?? (claim.user_id === req.user.id ? req.user.username : 'Someone');
-  notify(space, participantIds(space), req.user.id, `${who} left the space.`);
+  const reason = String(req.body?.reason ?? '').trim().slice(0, 100);
+  notify(space, participantIds(space), req.user.id, `${who} left the space${reason ? ` — “${reason}”` : '.'}`);
   sendUpdate(space, res);
 });
 

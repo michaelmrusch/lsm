@@ -340,10 +340,13 @@ body {
 
 /* ---------- room canvas ---------- */
 
+/* The room is square on every device: table positions are fractions of
+   the canvas, so differing aspect ratios would make layouts that don't
+   overlap on one screen overlap on another. */
 .room {
   position: relative;
   width: 100%;
-  aspect-ratio: 3 / 4;
+  aspect-ratio: 1 / 1;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -928,13 +931,12 @@ body {
   }
 
   .space-layout .room {
-    width: 100%;
-    height: auto;
-    /* Landscape on desktop: the left column is wide, so a portrait room
-       left big empty gutters and shrank the tables. Fill the column width
-       and cap the height so it never outgrows the viewport. */
-    aspect-ratio: 16 / 10;
-    max-height: 100%;
+    /* Height-driven on desktop, but the same square shape as mobile so
+       arrangements render identically on both. */
+    height: 100%;
+    width: auto;
+    aspect-ratio: 1 / 1;
+    max-width: 100%;
     align-self: center;
   }
 

@@ -8,7 +8,7 @@ interface Actions {
   join(tableId: number, eta: string, seat?: number): void;
   addGuest(tableId: number, name: string, eta: string, seat?: number): void;
   updateClaim(claimId: number, body: { eta?: string; status?: string }, close?: boolean): void;
-  removeClaim(claimId: number): void;
+  removeClaim(claimId: number, reason?: string): void;
   setReleased(tableId: number, released: boolean): void;
   setCapacity(tableId: number, capacity: number): void;
   rotate(tableId: number): void;
@@ -44,6 +44,8 @@ export function ClaimSheet({
   const [guestMode, setGuestMode] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [guestEta, setGuestEta] = useState('now');
+  const [leaveMode, setLeaveMode] = useState(false);
+  const [leaveReason, setLeaveReason] = useState('');
 
   const others = [...table.claims].filter((c) => c !== myClaimHere).sort((a, b) => a.seat - b.seat);
 
@@ -74,9 +76,30 @@ export function ClaimSheet({
               🕐 Change arrival time
             </button>
           ))}
-        <button className="btn btn-danger" onClick={() => actions.removeClaim(myClaimHere.id)}>
-          Leave table
-        </button>
+        {leaveMode ? (
+          <>
+            <input
+              className="input"
+              value={leaveReason}
+              onChange={(e) => setLeaveReason(e.target.value)}
+              placeholder="Tell the others why? (optional)"
+              maxLength={100}
+            />
+            <button
+              className="btn btn-danger"
+              onClick={() => actions.removeClaim(myClaimHere.id, leaveReason.trim() || undefined)}
+            >
+              Leave table
+            </button>
+            <button className="link-btn" onClick={() => setLeaveMode(false)}>
+              Stay
+            </button>
+          </>
+        ) : (
+          <button className="btn btn-danger" onClick={() => setLeaveMode(true)}>
+            Leave table
+          </button>
+        )}
       </>
     );
   } else if (table.released) {

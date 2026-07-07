@@ -220,7 +220,8 @@ export function Space() {
       mutate(`/api/spaces/${code}/tables/${tableId}/guests`, { method: 'POST', body: { name, eta, seat } }),
     updateClaim: (claimId: number, body: { eta?: string; status?: string }, close = true) =>
       mutate(`/api/spaces/${code}/claims/${claimId}`, { method: 'PATCH', body }, { close }),
-    removeClaim: (claimId: number) => mutate(`/api/spaces/${code}/claims/${claimId}`, { method: 'DELETE' }),
+    removeClaim: (claimId: number, reason?: string) =>
+      mutate(`/api/spaces/${code}/claims/${claimId}`, { method: 'DELETE', body: reason ? { reason } : undefined }),
     setReleased: (tableId: number, released: boolean) =>
       mutate(`/api/spaces/${code}/tables/${tableId}`, { method: 'PATCH', body: { released } }, { close: false }),
     setCapacity: (tableId: number, capacity: number) =>
