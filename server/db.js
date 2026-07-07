@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS claims (
   table_id INTEGER NOT NULL REFERENCES tables(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   guest_name TEXT,
+  seat INTEGER NOT NULL DEFAULT 0,
   eta TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'coming' CHECK (status IN ('coming', 'arrived')),
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
@@ -174,6 +175,17 @@ if (!hasColumn('spaces', 'opened_by')) {
     `);
   })();
   db.pragma('foreign_keys = ON');
+}
+
+// Claims map to a specific compartment of their table.
+if (!hasColumn('claims', 'seat')) {
+  db.exec('ALTER TABLE claims ADD COLUMN seat INTEGER NOT NULL DEFAULT 0');
+  const tables = db.prepare('SELECT DISTINCT table_id FROM claims').all();
+  const setSeat = db.prepare('UPDATE claims SET seat = ? WHERE id = ?');
+  for (const t of tables) {
+    const claims = db.prepare('SELECT id FROM claims WHERE table_id = ? ORDER BY created_at, id').all(t.table_id);
+    claims.forEach((c, i) => setSeat.run(i, c.id));
+  }
 }
 
 // Seed memberships (idempotent): owners and everyone with a claim belong.

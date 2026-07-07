@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { Claim, Table } from '../types';
+import { claimColor } from '../util';
 
 // The virtual room is CANVAS x the viewport in each dimension; the default
 // view (scale = MIN_SCALE) shows all of it.
@@ -32,10 +33,11 @@ function clampView(view: View, w: number, h: number): View {
 
 function Segment({ claim, mine }: { claim: Claim | undefined; mine: boolean }) {
   if (!claim) return <div className="segment empty" />;
+  const color = claimColor(claim);
   const style =
     claim.status === 'arrived'
-      ? { background: claim.color }
-      : { background: `${claim.color}38`, boxShadow: `inset 0 0 0 2px ${claim.color}` };
+      ? { background: color }
+      : { background: `${color}38`, boxShadow: `inset 0 0 0 2px ${color}` };
   return (
     <div className={`segment${mine ? ' mine-seat' : ''}`} style={style}>
       <span>{(claim.guestName ?? claim.username).slice(0, 2)}</span>
@@ -64,7 +66,7 @@ export function Room({
 }: {
   tables: Table[];
   currentUserId: number;
-  onTap(id: number): void;
+  onTap(id: number, seat: number): void;
   onMove(id: number, x: number, y: number): void;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
@@ -98,7 +100,7 @@ export function Room({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = el.getBoundingClientRect();
-      zoomAt(e.clientX - rect.left, e.clientY - rect.top, viewRef.current.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+      zoomAt(e.clientX - rect.left, e.clientY - rect.top, viewRef.current.scale * (e.deltaY < 0 ? 1.07 : 1 / 1.07));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -215,7 +217,7 @@ export function Room({
     setLive({ id: d.id, ...finalPos(d, e) });
   }
 
-  function onPointerUp(e: ReactPointerEvent) {
+  function onPointerUp(e: ReactPointerEvent, t: Table) {
     const d = dragRef.current;
     dragRef.current = null;
     if (!d) return;
@@ -223,7 +225,11 @@ export function Room({
       const pos = finalPos(d, e);
       onMove(d.id, pos.x, pos.y);
     } else {
-      onTap(d.id);
+      // a tap targets the compartment under the finger
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const frac = t.rot === 0 ? (e.clientX - rect.left) / rect.width : (e.clientY - rect.top) / rect.height;
+      const seat = Math.max(0, Math.min(t.capacity - 1, Math.floor(frac * t.capacity)));
+      onTap(d.id, seat);
     }
     setLive(null);
   }
@@ -273,7 +279,7 @@ export function Room({
               }}
               onPointerDown={(e) => onPointerDown(e, t)}
               onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
+              onPointerUp={(e) => onPointerUp(e, t)}
               onPointerCancel={onPointerCancel}
             >
               <span className="rtable-tag">{t.label}</span>
@@ -281,13 +287,10 @@ export function Room({
                 <span className="rtable-released">given back</span>
               ) : (
                 <div className={`segments ${horizontal ? 'srow' : 'scol'}`}>
-                  {Array.from({ length: t.capacity }, (_, i) => (
-                    <Segment
-                      key={i}
-                      claim={t.claims[i]}
-                      mine={t.claims[i]?.userId === currentUserId && !t.claims[i]?.guestName}
-                    />
-                  ))}
+                  {Array.from({ length: t.capacity }, (_, i) => {
+                    const claim = t.claims.find((c) => c.seat === i);
+                    return <Segment key={i} claim={claim} mine={claim?.userId === currentUserId && !claim?.guestName} />;
+                  })}
                 </div>
               )}
             </div>

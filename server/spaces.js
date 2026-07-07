@@ -83,6 +83,7 @@ export function getSpaceState(code) {
           username: c.username,
           color: colorFor({ id: c.user_id, color: c.user_color }),
           guestName: c.guest_name,
+          seat: c.seat,
           eta: c.eta,
           status: c.status,
         })),
@@ -120,6 +121,15 @@ export function listUserSpaces(userId) {
       freeSeats: Math.max(0, seats - people),
     };
   });
+}
+
+// Which compartment a newcomer gets: the tapped one if it is free,
+// otherwise the first free one.
+function pickSeat(tableId, capacity, requested) {
+  const taken = new Set(db.prepare('SELECT seat FROM claims WHERE table_id = ?').all(tableId).map((r) => r.seat));
+  if (Number.isInteger(requested) && requested >= 0 && requested < capacity && !taken.has(requested)) return requested;
+  for (let i = 0; i < capacity; i++) if (!taken.has(i)) return i;
+  return null;
 }
 
 function normalizeEta(value) {
@@ -298,14 +308,15 @@ spacesRouter.post('/:code/tables/:tableId/claims', (req, res) => {
       DELETE FROM claims WHERE user_id = ? AND guest_name IS NULL
         AND table_id IN (SELECT id FROM tables WHERE space_id = ?)
     `).run(req.user.id, space.id);
-    const { n } = db.prepare('SELECT COUNT(*) AS n FROM claims WHERE table_id = ?').get(table.id);
-    if (n >= table.capacity) {
+    const seat = pickSeat(table.id, table.capacity, req.body?.seat);
+    if (seat === null) {
       const err = new Error('This table is already full.');
       err.status = 409;
       throw err;
     }
     const status = eta === 'now' ? 'arrived' : 'coming';
-    db.prepare('INSERT INTO claims (table_id, user_id, eta, status) VALUES (?, ?, ?, ?)').run(table.id, req.user.id, eta, status);
+    db.prepare('INSERT INTO claims (table_id, user_id, seat, eta, status) VALUES (?, ?, ?, ?, ?)')
+      .run(table.id, req.user.id, seat, eta, status);
   });
   try {
     join();
@@ -330,11 +341,11 @@ spacesRouter.post('/:code/tables/:tableId/guests', (req, res) => {
   if (!table) return res.status(404).json({ error: 'Table not found.' });
   if (table.released) return res.status(409).json({ error: 'This table has been given back.' });
 
-  const { n } = db.prepare('SELECT COUNT(*) AS n FROM claims WHERE table_id = ?').get(table.id);
-  if (n >= table.capacity) return res.status(409).json({ error: 'This table is already full.' });
+  const seat = pickSeat(table.id, table.capacity, req.body?.seat);
+  if (seat === null) return res.status(409).json({ error: 'This table is already full.' });
   const status = eta === 'now' ? 'arrived' : 'coming';
-  db.prepare('INSERT INTO claims (table_id, user_id, guest_name, eta, status) VALUES (?, ?, ?, ?, ?)')
-    .run(table.id, req.user.id, guestName, eta, status);
+  db.prepare('INSERT INTO claims (table_id, user_id, guest_name, seat, eta, status) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(table.id, req.user.id, guestName, seat, eta, status);
   notify(space, participantIds(space), req.user.id,
     `${req.user.username} reserved a seat for ${guestName} (${table.label})`);
   sendUpdate(space, res);
@@ -459,7 +470,21 @@ spacesRouter.patch('/:code/tables/:tableId', (req, res) => {
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Nothing to change.' });
 
   const setSql = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE tables SET ${setSql} WHERE id = ?`).run(...Object.values(updates), table.id);
+  db.transaction(() => {
+    db.prepare(`UPDATE tables SET ${setSql} WHERE id = ?`).run(...Object.values(updates), table.id);
+    // Shrinking can strand claims on removed compartments: move them
+    // into free ones.
+    if (updates.capacity !== undefined) {
+      const claims = db.prepare('SELECT id, seat FROM claims WHERE table_id = ?').all(table.id);
+      const occupied = new Set(claims.filter((c) => c.seat < updates.capacity).map((c) => c.seat));
+      for (const c of claims.filter((cl) => cl.seat >= updates.capacity)) {
+        let s = 0;
+        while (occupied.has(s)) s++;
+        occupied.add(s);
+        db.prepare('UPDATE claims SET seat = ? WHERE id = ?').run(s, c.id);
+      }
+    }
+  })();
   sendUpdate(space, res);
 });
 

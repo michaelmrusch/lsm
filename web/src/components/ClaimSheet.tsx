@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import type { SpaceState, Table } from '../types';
-import { etaLabel } from '../util';
+import { claimColor, etaLabel } from '../util';
 import { EtaPicker } from './EtaPicker';
 import { Stepper } from './Stepper';
 
 interface Actions {
-  join(tableId: number, eta: string): void;
-  addGuest(tableId: number, name: string, eta: string): void;
+  join(tableId: number, eta: string, seat?: number): void;
+  addGuest(tableId: number, name: string, eta: string, seat?: number): void;
   updateClaim(claimId: number, body: { eta?: string; status?: string }, close?: boolean): void;
   removeClaim(claimId: number): void;
   setReleased(tableId: number, released: boolean): void;
@@ -18,6 +18,7 @@ interface Actions {
 export function ClaimSheet({
   state,
   table,
+  seat,
   userId,
   canManageClaims,
   onClose,
@@ -25,6 +26,7 @@ export function ClaimSheet({
 }: {
   state: SpaceState;
   table: Table;
+  seat: number;
   userId: number;
   canManageClaims: boolean;
   onClose(): void;
@@ -35,15 +37,15 @@ export function ClaimSheet({
     (t) => t.id !== table.id && t.claims.some((c) => c.userId === userId && !c.guestName),
   );
   const isFull = table.claims.length >= table.capacity;
+  const seatFree = !table.claims.some((c) => c.seat === seat);
+  const seatText = table.capacity > 1 && seatFree ? `Seat ${seat + 1} · ` : '';
   const [eta, setEta] = useState<string>(myClaimHere && myClaimHere.eta !== 'now' ? myClaimHere.eta : 'now');
   const [editingTime, setEditingTime] = useState(false);
   const [guestMode, setGuestMode] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [guestEta, setGuestEta] = useState('now');
 
-  const manageableOthers = table.claims.filter(
-    (c) => c !== myClaimHere && (c.userId === userId || canManageClaims),
-  );
+  const others = [...table.claims].filter((c) => c !== myClaimHere).sort((a, b) => a.seat - b.seat);
 
   let body;
   if (myClaimHere) {
@@ -80,14 +82,14 @@ export function ClaimSheet({
   } else if (table.released) {
     body = <p className="sheet-status">This table was given back.</p>;
   } else if (isFull) {
-    body = <p className="sheet-status">This table is full — pick another one.</p>;
+    body = <p className="sheet-status">This table is full — here's who has the seats:</p>;
   } else if (!guestMode) {
     body = (
       <>
-        <p className="sheet-label">When will you arrive?</p>
+        <p className="sheet-label">{seatText}When will you arrive?</p>
         <EtaPicker value={eta} onChange={setEta} />
         {myOtherTable && <p className="hint">You'll move here from {myOtherTable.label}.</p>}
-        <button className="btn btn-primary" onClick={() => actions.join(table.id, eta)}>
+        <button className="btn btn-primary" onClick={() => actions.join(table.id, eta, seat)}>
           {eta === 'now' ? "🪑 I'm here now" : `🪑 I'll be there ${etaLabel(eta)}`}
         </button>
       </>
@@ -97,7 +99,7 @@ export function ClaimSheet({
   const showGuestButton = !table.released && !isFull;
   const guestForm = guestMode && showGuestButton && (
     <div className="stack guest-form">
-      <p className="sheet-label">Reserve a seat for a friend</p>
+      <p className="sheet-label">{seatText}Reserve for a friend</p>
       <input
         className="input"
         value={guestName}
@@ -109,9 +111,11 @@ export function ClaimSheet({
       <button
         className="btn btn-primary"
         disabled={!guestName.trim()}
-        onClick={() => actions.addGuest(table.id, guestName.trim(), guestEta)}
+        onClick={() => actions.addGuest(table.id, guestName.trim(), guestEta, seat)}
       >
-        Reserve for {guestName.trim() || 'them'}
+        {guestEta === 'now'
+          ? `${guestName.trim() || 'Your friend'} is here — add them`
+          : `Reserve for ${guestName.trim() || 'them'}`}
       </button>
       <button className="link-btn" onClick={() => setGuestMode(false)}>
         Back
@@ -138,64 +142,70 @@ export function ClaimSheet({
             </button>
           )}
 
-          {manageableOthers.length > 0 && (
+          {others.length > 0 && (
             <div className="sheet-section">
-              <p className="sheet-label">Seats you can manage</p>
-              {manageableOthers.map((c) => (
-                <div key={c.id} className="occupant-row">
-                  <span className="person-dot" style={{ background: c.color }} />
-                  <span className="occupant-name">
-                    {c.guestName ?? c.username}
-                    {c.guestName && <span className="occupant-sub"> · friend of {c.username}</span>}
-                  </span>
-                  <span className="occupant-eta">{c.status === 'arrived' ? 'here' : etaLabel(c.eta)}</span>
-                  {c.status === 'coming' && (
-                    <button
-                      className="occupant-btn"
-                      title="Mark as arrived"
-                      onClick={() => actions.updateClaim(c.id, { status: 'arrived' }, false)}
-                    >
-                      ✓
-                    </button>
-                  )}
-                  <button className="occupant-btn danger" title="Remove" onClick={() => actions.removeClaim(c.id)}>
-                    ✕
-                  </button>
-                </div>
-              ))}
+              <p className="sheet-label">At this table</p>
+              {others.map((c) => {
+                const canManage = c.userId === userId || canManageClaims;
+                return (
+                  <div key={c.id} className="occupant-row">
+                    {table.capacity > 1 && <span className="occupant-seat">#{c.seat + 1}</span>}
+                    <span className="person-dot" style={{ background: claimColor(c) }} />
+                    <span className="occupant-name">
+                      {c.guestName ?? c.username}
+                      {c.guestName && <span className="occupant-sub"> · friend of {c.username}</span>}
+                    </span>
+                    <span className="occupant-eta">{c.status === 'arrived' ? 'here 🎉' : etaLabel(c.eta)}</span>
+                    {canManage && c.status === 'coming' && (
+                      <button
+                        className="occupant-btn"
+                        title="Mark as arrived"
+                        onClick={() => actions.updateClaim(c.id, { status: 'arrived' }, false)}
+                      >
+                        ✓
+                      </button>
+                    )}
+                    {canManage && (
+                      <button className="occupant-btn danger" title="Remove" onClick={() => actions.removeClaim(c.id)}>
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
           <div className="sheet-section">
             <p className="sheet-label">Table settings</p>
+            {!table.released && (
+              <Stepper
+                small
+                label="Seats"
+                value={table.capacity}
+                min={Math.max(1, table.claims.length)}
+                max={8}
+                onChange={(v) => actions.setCapacity(table.id, v)}
+              />
+            )}
+            <div className="sheet-owner-row">
               {!table.released && (
-                <Stepper
-                  small
-                  label="Seats"
-                  value={table.capacity}
-                  min={Math.max(1, table.claims.length)}
-                  max={8}
-                  onChange={(v) => actions.setCapacity(table.id, v)}
-                />
+                <button className="btn btn-secondary" onClick={() => actions.rotate(table.id)}>
+                  ⟳ Rotate
+                </button>
               )}
-              <div className="sheet-owner-row">
-                {!table.released && (
-                  <button className="btn btn-secondary" onClick={() => actions.rotate(table.id)}>
-                    ⟳ Rotate
+              {table.released ? (
+                <button className="btn btn-secondary" onClick={() => actions.setReleased(table.id, false)}>
+                  Reserve it again
+                </button>
+              ) : (
+                table.claims.length === 0 && (
+                  <button className="btn btn-secondary" onClick={() => actions.setReleased(table.id, true)}>
+                    Give back
                   </button>
-                )}
-                {table.released ? (
-                  <button className="btn btn-secondary" onClick={() => actions.setReleased(table.id, false)}>
-                    Reserve it again
-                  </button>
-                ) : (
-                  table.claims.length === 0 && (
-                    <button className="btn btn-secondary" onClick={() => actions.setReleased(table.id, true)}>
-                      Give back
-                    </button>
-                  )
-                )}
-              </div>
+                )
+              )}
+            </div>
             {table.claims.length === 0 && (
               <button className="btn btn-danger" onClick={() => actions.removeTable(table.id)}>
                 Remove this table

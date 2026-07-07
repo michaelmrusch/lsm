@@ -11,6 +11,7 @@ export interface Claim {
   username: string;
   color: string;
   guestName: string | null;
+  seat: number; // compartment index on the table (0-based)
   eta: string; // 'now' or 'HH:MM'
   status: 'coming' | 'arrived';
 }

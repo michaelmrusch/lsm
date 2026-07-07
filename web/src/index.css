@@ -943,6 +943,33 @@ body {
   }
 }
 
+/* ---------- github footer ---------- */
+
+.gh-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 28px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.gh-link:hover {
+  color: var(--text);
+}
+
+.occupant-seat {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 5px;
+  flex: 0 0 auto;
+}
+
 /* ---------- admin ---------- */
 
 .admin-row {

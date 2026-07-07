@@ -1,5 +1,5 @@
 import type { Table } from '../types';
-import { etaLabel } from '../util';
+import { claimColor, etaLabel } from '../util';
 
 export function PeopleList({ tables }: { tables: Table[] }) {
   const rows = tables.flatMap((t) => t.claims.map((c) => ({ ...c, tableLabel: t.label })));
@@ -14,7 +14,7 @@ export function PeopleList({ tables }: { tables: Table[] }) {
       <ul className="people-list">
         {rows.map((r) => (
           <li key={r.id}>
-            <span className="person-dot" style={{ background: r.color }} />
+            <span className="person-dot" style={{ background: claimColor(r) }} />
             <span className="person-name">
               {r.guestName ?? r.username}
               {r.guestName && <span className="occupant-sub"> · friend of {r.username}</span>}

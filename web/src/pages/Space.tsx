@@ -17,7 +17,7 @@ export function Space() {
   const [state, setState] = useState<SpaceState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<{ id: number; seat: number } | null>(null);
   const [pushOn, setPushOn] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [setupTables, setSetupTables] = useState(4);
@@ -71,7 +71,7 @@ export function Space() {
       try {
         const s = await api<SpaceState>(path, options);
         setState(s);
-        if (close) setSelectedId(null);
+        if (close) setSelected(null);
       } catch (e) {
         showToast(e instanceof Error ? e.message : 'Something went wrong.');
       }
@@ -136,7 +136,7 @@ export function Space() {
   const canManageSession =
     space.status === 'open' && (space.openedBy === user.id || space.ownerId === user.id || user.isAdmin);
   const canDeleteSpace = space.ownerId === user.id || user.isAdmin;
-  const selectedTable = tables.find((t) => t.id === selectedId) ?? null;
+  const selectedTable = selected ? tables.find((t) => t.id === selected.id) ?? null : null;
 
   async function deleteSpace() {
     if (!window.confirm(`Delete “${space.name}” forever? The code stops working for everyone.`)) return;
@@ -214,10 +214,10 @@ export function Space() {
   }
 
   const actions = {
-    join: (tableId: number, eta: string) =>
-      mutate(`/api/spaces/${code}/tables/${tableId}/claims`, { method: 'POST', body: { eta } }),
-    addGuest: (tableId: number, name: string, eta: string) =>
-      mutate(`/api/spaces/${code}/tables/${tableId}/guests`, { method: 'POST', body: { name, eta } }),
+    join: (tableId: number, eta: string, seat?: number) =>
+      mutate(`/api/spaces/${code}/tables/${tableId}/claims`, { method: 'POST', body: { eta, seat } }),
+    addGuest: (tableId: number, name: string, eta: string, seat?: number) =>
+      mutate(`/api/spaces/${code}/tables/${tableId}/guests`, { method: 'POST', body: { name, eta, seat } }),
     updateClaim: (claimId: number, body: { eta?: string; status?: string }, close = true) =>
       mutate(`/api/spaces/${code}/claims/${claimId}`, { method: 'PATCH', body }, { close }),
     removeClaim: (claimId: number) => mutate(`/api/spaces/${code}/claims/${claimId}`, { method: 'DELETE' }),
@@ -247,7 +247,7 @@ export function Space() {
         <SummaryBar state={state} />
 
         <div className="room-wrap">
-          <Room tables={tables} currentUserId={user.id} onTap={(id) => setSelectedId(id)} onMove={actions.move} />
+          <Room tables={tables} currentUserId={user.id} onTap={(id, seat) => setSelected({ id, seat })} onMove={actions.move} />
         </div>
         <div className="room-toolbar">
           <p className="hint room-hint">Tap a table to set it up — drag to move it, pinch or scroll to zoom.</p>
@@ -277,13 +277,14 @@ export function Space() {
         )}
       </aside>
 
-      {selectedTable && (
+      {selectedTable && selected && (
         <ClaimSheet
           state={state}
           table={selectedTable}
+          seat={Math.min(selected.seat, selectedTable.capacity - 1)}
           userId={user.id}
           canManageClaims={canManageSession}
-          onClose={() => setSelectedId(null)}
+          onClose={() => setSelected(null)}
           actions={actions}
         />
       )}
