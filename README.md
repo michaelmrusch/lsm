@@ -20,7 +20,7 @@ keeps the group, its code and its members for tomorrow.
 - **Smart summary** — "1 here · 2 coming (next ~16:30) · 5 free seats"
 - **Admin panel** — the account named in `ADMIN_USERNAME` sees all spaces and users at `/admin` and can delete either (e.g. offensive names)
 - **Persistent groups** — 6-character codes / shareable links that stay valid; your home screen shows each group's live status
-- **Auto-reset** — sessions end themselves after 16 hours (one study day); the group stays
+- **Auto-reset** — sessions end themselves after 28 hours (a long study day into the next); the group stays
 
 ## Local development
 
