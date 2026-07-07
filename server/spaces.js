@@ -608,12 +608,15 @@ export function deleteSpace(space) {
   db.prepare('DELETE FROM spaces WHERE id = ?').run(space.id);
 }
 
-// Sessions are for one study day: auto-end after 16 hours, back to idle.
+// Sessions cover a long study day (through the night into the next
+// afternoon) before auto-ending back to idle.
+const SESSION_TTL_HOURS = 28;
+
 export function sweepExpired() {
   const stale = db.prepare(`
     SELECT id, code, name, owner_id, opened_by FROM spaces
-    WHERE status = 'open' AND opened_at < unixepoch() - 16 * 3600
-  `).all();
+    WHERE status = 'open' AND opened_at < unixepoch() - ? * 3600
+  `).all(SESSION_TTL_HOURS);
   for (const s of stale) {
     const participants = endSession(s);
     notify(s, participants, null, "Today's session wrapped up. Coming back tomorrow? Tap to sign up 🙋");

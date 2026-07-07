@@ -20,7 +20,7 @@ keeps the group, its code and its members for tomorrow.
 - **Smart summary** — "1 here · 2 coming (next ~16:30) · 5 free seats"
 - **Admin panel** — the account named in `ADMIN_USERNAME` sees all spaces and users at `/admin`, can delete either (e.g. offensive names), and generates the one-time invite codes new members need to register
 - **Persistent groups** — 6-character codes / shareable links that stay valid; your home screen shows each group's live status
-- **Auto-reset** — sessions end themselves after 16 hours (one study day); the group stays
+- **Auto-reset** — sessions end themselves after 28 hours (a long study day into the next); the group stays
 - **Tomorrow pledges** — the last one out is prompted to end the session; everyone who took part gets a push asking "coming back tomorrow?" — one tap signals intent (no time needed), so the first person there next morning knows what table size to grab, and fellow pledgers get a small motivational nudge
 - **Lunch votes** — sessions opened before 12:00 (Zurich) automatically get a "Lunch today" vote with the ETH Zentrum spots (Clausiusbar, Archimedes, Polysnack, Obere/Untere Mensa, Orient Catering); tapping ℹ️ shows today's live menus straight from ETH's gastronomy API. Anyone can start extra votes on anything, add one custom option per person, and change their ballot; a slim chip shows just the current leader, the details live in an overlay, and non-voters get one reminder push at 11:00
 
