@@ -9,7 +9,6 @@ import { Room } from '../components/Room';
 import { PeopleList } from '../components/PeopleList';
 import { ClaimSheet } from '../components/ClaimSheet';
 import { Stepper } from '../components/Stepper';
-import { VotesBar, VoteSheet } from '../components/Votes';
 
 export function Space() {
   const { code = '' } = useParams();
@@ -23,7 +22,6 @@ export function Space() {
   const [toast, setToast] = useState<string | null>(null);
   const [setupTables, setSetupTables] = useState(4);
   const [setupSeats, setSetupSeats] = useState(1);
-  const [votesOpen, setVotesOpen] = useState(false);
   const toastTimer = useRef<number>();
 
   const showToast = useCallback((msg: string) => {
@@ -74,7 +72,6 @@ export function Space() {
         const s = await api<SpaceState>(path, options);
         setState(s);
         if (close) setSelected(null);
-        return s;
       } catch (e) {
         showToast(e instanceof Error ? e.message : 'Something went wrong.');
       }
@@ -177,11 +174,6 @@ export function Space() {
     </header>
   );
 
-  const pledges = state.tomorrow;
-  const myPledge = pledges.some((p) => p.userId === user.id);
-  const togglePledge = () =>
-    void mutate(`/api/spaces/${code}/tomorrow`, { method: myPledge ? 'DELETE' : 'POST' }, { close: false });
-
   if (space.status === 'idle') {
     return (
       <div className="app">
@@ -194,31 +186,6 @@ export function Space() {
               First one there? Reserve the tables in the room, then set them up here — everyone in the group
               {pushOn ? ' gets notified.' : ' gets notified (turn on the 🔔 above to get yours).'}
             </p>
-          </div>
-          <div className="card stack">
-            <h2 className="section-title">Coming tomorrow</h2>
-            {pledges.length > 0 ? (
-              <>
-                <ul className="people-list">
-                  {pledges.map((p) => (
-                    <li key={p.userId}>
-                      <span className="person-dot" style={{ background: p.color }} />
-                      <span className="person-name">{p.username}</span>
-                      <span className="person-eta">will be there</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="hint">
-                  First one there? Grab seats for at least {pledges.length}{' '}
-                  {pledges.length === 1 ? 'person' : 'people'}.
-                </p>
-              </>
-            ) : (
-              <p className="hint">Nobody has signed up for tomorrow yet — be the first!</p>
-            )}
-            <button className={`btn ${myPledge ? 'btn-secondary' : 'btn-primary'}`} onClick={togglePledge}>
-              {myPledge ? "✋ Can't make it tomorrow after all" : "🙋 I'll be there tomorrow"}
-            </button>
           </div>
           <div className="card stack">
             <Stepper label="Tables reserved" value={setupTables} min={1} max={20} onChange={setSetupTables} />
@@ -253,18 +220,8 @@ export function Space() {
       mutate(`/api/spaces/${code}/tables/${tableId}/guests`, { method: 'POST', body: { name, eta, seat } }),
     updateClaim: (claimId: number, body: { eta?: string; status?: string }, close = true) =>
       mutate(`/api/spaces/${code}/claims/${claimId}`, { method: 'PATCH', body }, { close }),
-    removeClaim: async (claimId: number, reason?: string) => {
-      const s = await mutate(`/api/spaces/${code}/claims/${claimId}`, { method: 'DELETE', body: reason ? { reason } : undefined });
-      // The last one out gets asked to switch off the lights.
-      if (
-        s &&
-        s.space.status === 'open' &&
-        s.tables.every((t) => t.claims.length === 0) &&
-        window.confirm('You freed the last seat — end the session for everyone? The space and its code stay.')
-      ) {
-        void mutate(`/api/spaces/${code}`, { method: 'PATCH', body: { status: 'idle' } });
-      }
-    },
+    removeClaim: (claimId: number, reason?: string) =>
+      mutate(`/api/spaces/${code}/claims/${claimId}`, { method: 'DELETE', body: reason ? { reason } : undefined }),
     setReleased: (tableId: number, released: boolean) =>
       mutate(`/api/spaces/${code}/tables/${tableId}`, { method: 'PATCH', body: { released } }, { close: false }),
     setCapacity: (tableId: number, capacity: number) =>
@@ -283,25 +240,12 @@ export function Space() {
     removeTable: (tableId: number) => mutate(`/api/spaces/${code}/tables/${tableId}`, { method: 'DELETE' }),
   };
 
-  const voteActions = {
-    castBallot: (voteId: number, optionId: number | null) =>
-      void mutate(`/api/spaces/${code}/votes/${voteId}/ballots`, { method: 'POST', body: { optionId } }, { close: false }),
-    addOption: (voteId: number, label: string) =>
-      void mutate(`/api/spaces/${code}/votes/${voteId}/options`, { method: 'POST', body: { label } }, { close: false }),
-    createVote: (title: string) =>
-      void mutate(`/api/spaces/${code}/votes`, { method: 'POST', body: { title } }, { close: false }),
-    removeVote: (voteId: number) =>
-      void mutate(`/api/spaces/${code}/votes/${voteId}`, { method: 'DELETE' }, { close: false }),
-  };
-
   return (
     <div className="app space-layout">
       <div className="space-main">
         {header}
 
         <SummaryBar state={state} />
-
-        <VotesBar votes={state.votes} onOpen={() => setVotesOpen(true)} />
 
         <div className="room-wrap">
           <Room tables={tables} currentUserId={user.id} onTap={(id, seat) => setSelected({ id, seat })} onMove={actions.move} />
@@ -333,16 +277,6 @@ export function Space() {
           </button>
         )}
       </aside>
-
-      {votesOpen && (
-        <VoteSheet
-          state={state}
-          userId={user.id}
-          canManage={canManageSession}
-          onClose={() => setVotesOpen(false)}
-          actions={voteActions}
-        />
-      )}
 
       {selectedTable && selected && (
         <ClaimSheet
