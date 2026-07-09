@@ -5,9 +5,11 @@ import { requireAuth } from './auth.js';
 import { subscribe, broadcast } from './events.js';
 import { colorFor } from './colors.js';
 import { notifyUsers } from './push.js';
+import { votesRouter, votesForState, maybeCreateLunchVote, clearVotes } from './votes.js';
 
 export const spacesRouter = Router();
 spacesRouter.use(requireAuth);
+spacesRouter.use('/:code/votes', votesRouter);
 
 // No 0/O/1/I/L to keep codes easy to read out loud.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -24,6 +26,30 @@ function getSpaceRow(code) {
 
 function addMember(spaceId, userId) {
   db.prepare('INSERT OR IGNORE INTO space_members (space_id, user_id) VALUES (?, ?)').run(spaceId, userId);
+}
+
+function addParticipant(spaceId, userId) {
+  db.prepare('INSERT OR IGNORE INTO session_participants (space_id, user_id) VALUES (?, ?)').run(spaceId, userId);
+}
+
+// Calendar day at ETH (Europe/Zurich) as YYYY-MM-DD; offsetDays = 1 is
+// tomorrow. en-CA is the locale whose date format is ISO.
+function zurichDate(offsetDays = 0) {
+  const d = new Date(Date.now() + offsetDays * 24 * 3600 * 1000);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(d);
+}
+
+function tomorrowPledges(spaceId) {
+  return db.prepare(`
+    SELECT ts.user_id, u.username, u.color FROM tomorrow_signups ts
+    JOIN users u ON u.id = ts.user_id
+    WHERE ts.space_id = ? AND ts.for_date >= ?
+    ORDER BY ts.created_at, ts.user_id
+  `).all(spaceId, zurichDate()).map((r) => ({
+    userId: r.user_id,
+    username: r.username,
+    color: colorFor({ id: r.user_id, color: r.color }),
+  }));
 }
 
 // The session opener, the group owner and admins manage the session
@@ -89,6 +115,8 @@ export function getSpaceState(code) {
           arrivedAt: c.arrived_at,
         })),
     })),
+    tomorrow: tomorrowPledges(space.id),
+    votes: votesForState(space.id),
   };
 }
 
@@ -220,7 +248,9 @@ spacesRouter.post('/', (req, res) => {
       .prepare("INSERT INTO spaces (code, name, owner_id, status, opened_by, opened_at) VALUES (?, ?, ?, 'open', ?, unixepoch())")
       .run(code, name, req.user.id, req.user.id);
     addMember(info.lastInsertRowid, req.user.id);
+    addParticipant(info.lastInsertRowid, req.user.id);
     createTables(info.lastInsertRowid, params.tableCount, params.defaultCapacity);
+    maybeCreateLunchVote(info.lastInsertRowid, req.user.id);
     return code;
   });
   res.json({ code: create() });
@@ -262,29 +292,86 @@ spacesRouter.post('/:code/sessions', (req, res) => {
 
   db.transaction(() => {
     db.prepare('DELETE FROM tables WHERE space_id = ?').run(space.id);
+    // Yesterday's pledges are answered by this session starting; a fresh
+    // participant list starts collecting for tonight's reminder.
+    db.prepare('DELETE FROM tomorrow_signups WHERE space_id = ?').run(space.id);
+    db.prepare('DELETE FROM session_participants WHERE space_id = ?').run(space.id);
     db.prepare("UPDATE spaces SET status = 'open', opened_by = ?, opened_at = unixepoch() WHERE id = ?")
       .run(req.user.id, space.id);
+    addParticipant(space.id, req.user.id);
     createTables(space.id, params.tableCount, params.defaultCapacity);
+    clearVotes(space.id);
+    maybeCreateLunchVote(space.id, req.user.id);
   })();
   notify(space, memberIds(space.id), req.user.id,
     `${req.user.username} set up the space — ${params.tableCount} ${params.tableCount === 1 ? 'table' : 'tables'}, ${params.tableCount * params.defaultCapacity} seats. Who's coming?`);
   sendUpdate(space, res);
 });
 
+// Wind a session down: wipe the furniture, return everyone who took part
+// at some point today (not just whoever still holds a seat) so they can be
+// invited to pledge for tomorrow.
+function endSession(space) {
+  const ids = new Set(
+    db.prepare('SELECT user_id FROM session_participants WHERE space_id = ?').all(space.id).map((r) => r.user_id),
+  );
+  for (const id of participantIds(space)) ids.add(id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM tables WHERE space_id = ?').run(space.id);
+    db.prepare('DELETE FROM session_participants WHERE space_id = ?').run(space.id);
+    clearVotes(space.id);
+    db.prepare("UPDATE spaces SET status = 'idle', opened_by = NULL, opened_at = NULL WHERE id = ?").run(space.id);
+  })();
+  return [...ids];
+}
+
 // End today's session: wipe tables and claims, keep the group and its code.
+// Once every seat is empty anyone may end it — the last person to leave
+// gets prompted to switch off the lights.
 spacesRouter.patch('/:code', (req, res) => {
   const space = requireOpenSpace(req, res);
   if (!space) return;
-  if (!canManageSpace(space, req.user)) {
+  const seated = db.prepare(`
+    SELECT COUNT(*) AS n FROM claims c JOIN tables t ON t.id = c.table_id WHERE t.space_id = ?
+  `).get(space.id).n;
+  if (seated > 0 && !canManageSpace(space, req.user)) {
     return res.status(403).json({ error: 'Only the person who set up the space (or the group owner) can do that.' });
   }
   if (req.body?.status !== 'idle') return res.status(400).json({ error: 'Only ending the session is supported.' });
-  const participants = participantIds(space);
-  db.transaction(() => {
-    db.prepare('DELETE FROM tables WHERE space_id = ?').run(space.id);
-    db.prepare("UPDATE spaces SET status = 'idle', opened_by = NULL, opened_at = NULL WHERE id = ?").run(space.id);
-  })();
-  notify(space, participants, req.user.id, `${req.user.username} ended today's session.`);
+  const participants = endSession(space);
+  notify(space, participants, req.user.id,
+    `${req.user.username} ended today's session. Coming back tomorrow? Tap to sign up 🙋`);
+  sendUpdate(space, res);
+});
+
+// Pledge to come back tomorrow — pure intent, no arrival time. The first
+// person there the next morning sees the head count and knows what table
+// size to reserve.
+spacesRouter.post('/:code/tomorrow', (req, res) => {
+  const space = requireSpace(req, res);
+  if (!space) return;
+  addMember(space.id, req.user.id);
+  const fresh = !db.prepare('SELECT 1 FROM tomorrow_signups WHERE space_id = ? AND user_id = ? AND for_date >= ?')
+    .get(space.id, req.user.id, zurichDate());
+  db.prepare(`
+    INSERT INTO tomorrow_signups (space_id, user_id, for_date) VALUES (?, ?, ?)
+    ON CONFLICT(space_id, user_id) DO UPDATE SET for_date = excluded.for_date, created_at = unixepoch()
+  `).run(space.id, req.user.id, zurichDate(1));
+  if (fresh) {
+    // A little motivation for the ones already signed up.
+    const fellow = tomorrowPledges(space.id).map((p) => p.userId).filter((id) => id !== req.user.id);
+    if (fellow.length > 0) {
+      notify(space, fellow, req.user.id,
+        `${req.user.username} is in for tomorrow too — that's ${fellow.length + 1} of you now 💪`);
+    }
+  }
+  sendUpdate(space, res);
+});
+
+spacesRouter.delete('/:code/tomorrow', (req, res) => {
+  const space = requireSpace(req, res);
+  if (!space) return;
+  db.prepare('DELETE FROM tomorrow_signups WHERE space_id = ? AND user_id = ?').run(space.id, req.user.id);
   sendUpdate(space, res);
 });
 
@@ -319,6 +406,7 @@ spacesRouter.post('/:code/tables/:tableId/claims', (req, res) => {
     return res.status(e.status ?? 500).json({ error: e.message });
   }
   addMember(space.id, req.user.id);
+  addParticipant(space.id, req.user.id);
   notify(space, participantIds(space), req.user.id,
     eta === 'now' ? `${req.user.username} is here (${table.label}) 🎉` : `${req.user.username} is coming at ${eta} (${table.label})`);
   sendUpdate(space, res);
@@ -341,6 +429,7 @@ spacesRouter.post('/:code/tables/:tableId/guests', (req, res) => {
   const status = eta === 'now' ? 'arrived' : 'coming';
   db.prepare('INSERT INTO claims (table_id, user_id, guest_name, seat, eta, status, arrived_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(table.id, req.user.id, guestName, seat, eta, status, status === 'arrived' ? Math.floor(Date.now() / 1000) : null);
+  addParticipant(space.id, req.user.id);
   notify(space, participantIds(space), req.user.id,
     `${req.user.username} reserved a seat for ${guestName} (${table.label})`);
   sendUpdate(space, res);
@@ -521,14 +610,13 @@ export function deleteSpace(space) {
 
 // Sessions are for one study day: auto-end after 16 hours, back to idle.
 export function sweepExpired() {
-  const stale = db.prepare("SELECT id, code FROM spaces WHERE status = 'open' AND opened_at < unixepoch() - 16 * 3600").all();
-  if (stale.length === 0) return;
-  const end = db.transaction((s) => {
-    db.prepare('DELETE FROM tables WHERE space_id = ?').run(s.id);
-    db.prepare("UPDATE spaces SET status = 'idle', opened_by = NULL, opened_at = NULL WHERE id = ?").run(s.id);
-  });
+  const stale = db.prepare(`
+    SELECT id, code, name, owner_id, opened_by FROM spaces
+    WHERE status = 'open' AND opened_at < unixepoch() - 16 * 3600
+  `).all();
   for (const s of stale) {
-    end(s);
+    const participants = endSession(s);
+    notify(s, participants, null, "Today's session wrapped up. Coming back tomorrow? Tap to sign up 🙋");
     broadcast(s.id, getSpaceState(s.code));
   }
 }

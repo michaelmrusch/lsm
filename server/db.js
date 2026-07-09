@@ -87,6 +87,58 @@ CREATE TABLE IF NOT EXISTS invite_codes (
   used_at INTEGER
 );
 
+-- Everyone who held a seat at some point during the current session, kept
+-- so the end-of-session "sign up for tomorrow" reminder also reaches people
+-- who already left. Cleared when the next session opens.
+CREATE TABLE IF NOT EXISTS session_participants (
+  space_id INTEGER NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (space_id, user_id)
+);
+
+-- "I'll be back tomorrow" pledges — no arrival time, just intent, so the
+-- first person there the next morning knows what table size to reserve.
+-- for_date is the Zurich calendar day the pledge is for; rows are consumed
+-- when the next session opens and ignored once for_date is in the past.
+CREATE TABLE IF NOT EXISTS tomorrow_signups (
+  space_id INTEGER NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  for_date TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (space_id, user_id)
+);
+
+-- Session-scoped polls (e.g. where to eat lunch). Wiped together with the
+-- tables when a session ends, so every study day starts fresh.
+CREATE TABLE IF NOT EXISTS votes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  space_id INTEGER NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'custom' CHECK (kind IN ('lunch', 'custom')),
+  title TEXT NOT NULL,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  reminder_sent INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS vote_options (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vote_id INTEGER NOT NULL REFERENCES votes(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  facility_id INTEGER,   -- ETH gastronomy facility, for the live menu view
+  added_by INTEGER REFERENCES users(id) ON DELETE SET NULL  -- NULL = built-in option
+);
+
+-- One ballot per person per vote; changing your mind replaces it.
+CREATE TABLE IF NOT EXISTS vote_ballots (
+  vote_id INTEGER NOT NULL REFERENCES votes(id) ON DELETE CASCADE,
+  option_id INTEGER NOT NULL REFERENCES vote_options(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (vote_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_votes_space ON votes(space_id);
+CREATE INDEX IF NOT EXISTS idx_vote_options_vote ON vote_options(vote_id);
 CREATE INDEX IF NOT EXISTS idx_tables_space ON tables(space_id);
 CREATE INDEX IF NOT EXISTS idx_claims_table ON claims(table_id);
 CREATE INDEX IF NOT EXISTS idx_tokens_expiry ON auth_tokens(expires_at);

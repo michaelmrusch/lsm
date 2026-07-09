@@ -8,6 +8,8 @@ import { authRouter, requireAuth } from './auth.js';
 import { spacesRouter, sweepExpired, listUserSpaces, getSpaceState } from './spaces.js';
 import { adminRouter } from './admin.js';
 import { vapidPublicKey, saveSubscription, removeSubscription } from './push.js';
+import { sendLunchReminders } from './votes.js';
+import { menusHandler } from './menus.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -19,6 +21,7 @@ app.use('/api/spaces', spacesRouter);
 app.use('/api/admin', adminRouter);
 
 app.get('/api/me/spaces', requireAuth, (req, res) => res.json({ spaces: listUserSpaces(req.user.id) }));
+app.get('/api/menus', requireAuth, menusHandler);
 
 app.get('/api/push/key', (req, res) => res.json({ key: vapidPublicKey }));
 app.post('/api/push/subscribe', requireAuth, (req, res) => {
@@ -86,6 +89,9 @@ if (fs.existsSync(webDist)) {
 
 setInterval(sweepExpired, 15 * 60 * 1000).unref();
 sweepExpired();
+// Checked every 5 minutes so the 11:00 (Zurich) lunch-vote reminder lands
+// early in the hour; reminder_sent keeps it to one push per vote.
+setInterval(sendLunchReminders, 5 * 60 * 1000).unref();
 setInterval(() => {
   db.prepare('DELETE FROM auth_tokens WHERE expires_at < unixepoch()').run();
 }, 24 * 3600 * 1000).unref();
