@@ -4,8 +4,9 @@ services:
     pull_policy: always
     restart: unless-stopped
     ports:
-      # Reachable from the whole LAN. Once nginx fronts the app, tighten this
-      # back to '127.0.0.1:3000:3000' so nginx is the only public entry point.
+      # Published on the host so your Cloudflare Tunnel (cloudflared) can reach
+      # it. If cloudflared runs on this same host, bind to localhost only —
+      # '127.0.0.1:3000:3000' — so the tunnel is the only way in.
       - '3000:3000'
     volumes:
       - ./data:/app/data

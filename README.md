@@ -34,7 +34,7 @@ npm run dev        # server on :3000, Vite dev server on :5173
 
 Open http://localhost:5173. The SQLite database is created at `data/lsm.sqlite`.
 
-## Deployment (Docker Compose + nginx)
+## Deployment (Docker Compose)
 
 `docker-compose.yml` pulls the prebuilt `mrghxst/lsm:latest` image — CI
 rebuilds and pushes it on every push to `main` or `my-build`, so no local
@@ -45,24 +45,17 @@ git clone <this repo> lsm && cd lsm
 docker compose up -d
 ```
 
-The app listens on `127.0.0.1:3000` (not exposed publicly). The SQLite database is
-persisted in `./data/` on the host.
+The app listens on port 3000 and the SQLite database is persisted in `./data/`
+on the host.
+
+Public access and HTTPS are handled by a **Cloudflare Tunnel** (Zero Trust):
+point your `cloudflared` ingress at `http://localhost:3000` and Cloudflare
+terminates TLS at your hostname — no reverse proxy or certificate setup on the
+server. If `cloudflared` runs on the same host, bind the app to
+`127.0.0.1:3000:3000` in `docker-compose.yml` so the tunnel is the only way in.
 
 To unlock the admin panel, uncomment `ADMIN_USERNAME` in `docker-compose.yml` and
 set it to your account name, then `docker compose up -d`.
-
-Then wire up nginx: copy `nginx.example.conf` to
-`/etc/nginx/sites-available/lsm.conf`, set your domain, enable it, and get a
-certificate:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/lsm.conf /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d lsm.example.com
-```
-
-The `proxy_buffering off` / `proxy_read_timeout 1h` lines in the example config are
-required — without them the live updates (SSE) stall behind nginx.
 
 ### Updating
 
