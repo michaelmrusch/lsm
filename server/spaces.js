@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { db, gridPositions, tablePlacement, findFreeSpot } from './db.js';
+import { db, gridPositions, tablePlacement, findFreeSpot, placementsOverlap, GRID_CELL, CELLS } from './db.js';
 import { requireAuth } from './auth.js';
 import { subscribe, broadcast } from './events.js';
 import { colorFor } from './colors.js';
@@ -227,16 +227,50 @@ function createTables(spaceId, tableCount, capacity) {
   }
 }
 
-// Re-tidy every table in a space back into the canonical block. Used after
-// a table is added or removed so the arrangement (and the odd-one-out
-// vertical table) always stays clean, regardless of the new count.
-function relayoutTables(spaceId) {
-  const tables = db.prepare('SELECT id FROM tables WHERE space_id = ? ORDER BY id').all(spaceId);
-  const positions = gridPositions(tables.length);
-  const upd = db.prepare('UPDATE tables SET x = ?, y = ?, rot = ? WHERE id = ?');
-  for (let i = 0; i < tables.length; i++) {
-    upd.run(positions[i].x, positions[i].y, positions[i].rot, tables[i].id);
+const placementCenter = (p) => ({ x: (p.leftCell + p.wc / 2) * GRID_CELL, y: (p.topCell + p.hc / 2) * GRID_CELL });
+
+// Where the next table goes, without moving anybody who is already placed
+// (people are sitting there — the block only ever grows to the right, as if
+// the left side were a wall). If exactly one table stands rotated (the odd
+// one out), it flips in place into a horizontal and the newcomer completes
+// the stacked pair below it; otherwise the newcomer stands rotated at the
+// right edge of the block. Returns what to do, or null if the room is full.
+function nextTableSpot(tables) {
+  if (tables.length === 0) {
+    const [p] = gridPositions(1);
+    return { flip: null, ...p };
   }
+  const placed = tables.map((t) => ({ t, p: tablePlacement(t.x, t.y, t.rot) }));
+  const verticals = placed.filter(({ t }) => t.rot === 90);
+  if (verticals.length === 1) {
+    const v = verticals[0];
+    const flipped = { leftCell: v.p.leftCell, topCell: v.p.topCell, wc: 2, hc: 1 };
+    const below = { leftCell: v.p.leftCell, topCell: v.p.topCell + 1, wc: 2, hc: 1 };
+    const others = placed.filter(({ t }) => t.id !== v.t.id).map(({ p }) => p);
+    const fits =
+      flipped.leftCell + 2 <= CELLS &&
+      below.topCell + 1 <= CELLS &&
+      !others.some((o) => placementsOverlap(flipped, o) || placementsOverlap(below, o));
+    if (fits) {
+      return {
+        flip: { id: v.t.id, ...placementCenter(flipped) },
+        ...placementCenter(below),
+        rot: 0,
+      };
+    }
+    // no room to flip (someone rearranged things) — fall through and append
+  }
+  // a fresh rotated table at the right edge, aligned with the top of the block
+  const all = placed.map(({ p }) => p);
+  const cand = {
+    leftCell: Math.max(...all.map((p) => p.leftCell + p.wc)),
+    topCell: Math.min(CELLS - 2, Math.min(...all.map((p) => p.topCell))),
+    wc: 1,
+    hc: 2,
+  };
+  while (cand.leftCell + 1 <= CELLS && all.some((o) => placementsOverlap(cand, o))) cand.leftCell += 1;
+  if (cand.leftCell + 1 > CELLS) return null;
+  return { flip: null, ...placementCenter(cand), rot: 90 };
 }
 
 function validateSessionParams(req, res) {
@@ -519,24 +553,29 @@ spacesRouter.delete('/:code/claims/:claimId', (req, res) => {
   sendUpdate(space, res);
 });
 
-// Anyone in the session can add a table; the whole block re-tidies so the
-// newcomer slots into the canonical two-row arrangement.
+// Anyone in the session can add a table. Existing tables (and the people on
+// them) stay exactly where they are: the odd rotated table flips into a pair
+// with the newcomer, or a fresh rotated one appears at the right edge.
 spacesRouter.post('/:code/tables', (req, res) => {
   const space = requireOpenSpace(req, res);
   if (!space) return;
-  const tables = db.prepare('SELECT label FROM tables WHERE space_id = ?').all(space.id);
+  const tables = db.prepare('SELECT id, label, x, y, rot FROM tables WHERE space_id = ?').all(space.id);
   if (tables.length >= 20) return res.status(409).json({ error: 'Maximum of 20 tables reached.' });
+  const spot = nextTableSpot(tables);
+  if (!spot) return res.status(409).json({ error: 'No space left in the room for another table.' });
   const maxNum = tables.reduce((m, t) => Math.max(m, Number(/^T(\d+)$/.exec(t.label)?.[1] ?? 0)), 0);
   db.transaction(() => {
-    db.prepare('INSERT INTO tables (space_id, label, capacity, x, y) VALUES (?, ?, 1, 0.5, 0.5)')
-      .run(space.id, `T${maxNum + 1}`);
-    relayoutTables(space.id);
+    if (spot.flip) {
+      db.prepare('UPDATE tables SET x = ?, y = ?, rot = 0 WHERE id = ?').run(spot.flip.x, spot.flip.y, spot.flip.id);
+    }
+    db.prepare('INSERT INTO tables (space_id, label, capacity, x, y, rot) VALUES (?, ?, 1, ?, ?, ?)')
+      .run(space.id, `T${maxNum + 1}`, spot.x, spot.y, spot.rot);
   })();
   sendUpdate(space, res);
 });
 
-// Anyone in the session can remove an empty table; the rest re-tidy to
-// close the gap.
+// Anyone in the session can remove an empty table. The others stay put —
+// no re-arranging under people who are already seated.
 spacesRouter.delete('/:code/tables/:tableId', (req, res) => {
   const space = requireOpenSpace(req, res);
   if (!space) return;
@@ -544,10 +583,7 @@ spacesRouter.delete('/:code/tables/:tableId', (req, res) => {
   if (!table) return res.status(404).json({ error: 'Table not found.' });
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM claims WHERE table_id = ?').get(table.id);
   if (n > 0) return res.status(409).json({ error: 'People are on this table — it cannot be removed.' });
-  db.transaction(() => {
-    db.prepare('DELETE FROM tables WHERE id = ?').run(table.id);
-    relayoutTables(space.id);
-  })();
+  db.prepare('DELETE FROM tables WHERE id = ?').run(table.id);
   sendUpdate(space, res);
 });
 

@@ -51,7 +51,13 @@ function MenuDetail({ menus, facilityId }: { menus: FacilityMenu[] | null; facil
   if (!menus) return <p className="hint menu-detail">Loading today's menu…</p>;
   const menu = menus.find((m) => m.facilityId === facilityId);
   if (!menu || menu.meals.length === 0) {
-    return <p className="hint menu-detail">No menu published for today.</p>;
+    return (
+      <p className="hint menu-detail">
+        {menu?.status === 'closed'
+          ? 'Closed today.'
+          : 'No menu online yet — spots often add theirs during the morning.'}
+      </p>
+    );
   }
   return (
     <ul className="menu-detail">
@@ -142,15 +148,21 @@ function VoteCard({
                 />
               </span>
             </button>
-            {o.facilityId !== null && (
-              <button
-                className="occupant-btn"
-                title="Today's menu"
-                onClick={() => setOpenMenu(openMenu === o.id ? null : o.id)}
-              >
-                {openMenu === o.id ? '▴' : 'ℹ️'}
-              </button>
-            )}
+            {o.facilityId !== null &&
+              (menus?.find((m) => m.facilityId === o.facilityId)?.status === 'closed' ? (
+                // known closed today — nothing to expand, just say so
+                <span className="occupant-btn menu-closed" title="Closed today">
+                  🌙
+                </span>
+              ) : (
+                <button
+                  className="occupant-btn"
+                  title="Today's menu"
+                  onClick={() => setOpenMenu(openMenu === o.id ? null : o.id)}
+                >
+                  {openMenu === o.id ? '▴' : 'ℹ️'}
+                </button>
+              ))}
           </div>
           {openMenu === o.id && o.facilityId !== null && <MenuDetail menus={menus} facilityId={o.facilityId} />}
         </div>

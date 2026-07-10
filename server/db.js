@@ -191,7 +191,7 @@ CREATE INDEX IF NOT EXISTS idx_members_user ON space_members(user_id);
 // the table's center. The board is deliberately roomy — the client frames
 // the occupied part with a margin, so tables never sit near the edges.
 export const GRID_CELL = 1 / 32;
-const CELLS = 32;
+export const CELLS = 32;
 
 export function snapPosition(x, y, rot) {
   const wc = rot === 0 ? 2 : 1;
@@ -214,7 +214,7 @@ export function tablePlacement(x, y, rot) {
   };
 }
 
-function placementsOverlap(a, b) {
+export function placementsOverlap(a, b) {
   return a.leftCell < b.leftCell + b.wc && b.leftCell < a.leftCell + a.wc &&
     a.topCell < b.topCell + b.hc && b.topCell < a.topCell + a.hc;
 }
@@ -263,29 +263,26 @@ export function findAnyFreeSpot(rot, others) {
   return best ? { x: best.x, y: best.y } : null;
 }
 
-// Default arrangement: a centred block two rows tall. Tables pair up into
-// columns (one on top of the other); when the count is odd the leftover
-// table is rotated vertical so it fills a whole column on its own and the
-// block stays a clean rectangle. Returns a center + rotation per table;
-// the client frames whatever this produces, so exact centring is loose.
+// Default arrangement: a block two rows tall that grows rightward, as if
+// the left side were a wall. Tables pair up into stacked columns from the
+// wall out; an odd count means the newest table stands rotated (vertical)
+// at the right end, waiting to be flipped into a pair when the next table
+// arrives. This mirrors the incremental add flow, so a spawn of n looks
+// exactly like n tables added one by one.
 export function gridPositions(n) {
   if (n <= 0) return [];
-  const odd = n % 2; // 0 or 1 leftover -> one vertical column
-  const pairCols = Math.floor(n / 2);
-  const width = odd + pairCols * 2; // cells wide (vertical col = 1, pair col = 2)
+  const odd = n % 2;
+  const width = odd + Math.floor(n / 2) * 2;
   const startCol = Math.round((CELLS - width) / 2);
-  const rowTop = (CELLS - 2) / 2; // block is two cells tall, centred
-  const pos = new Array(n);
-  let col = startCol;
-  if (odd) {
-    // the odd one out (last table) is the vertical filler, on the left
-    pos[n - 1] = { x: (col + 0.5) * GRID_CELL, y: (rowTop + 1) * GRID_CELL, rot: 90 };
-    col += 1;
+  const rowTop = CELLS / 2 - 1; // block is two cells tall, centred
+  const pos = [];
+  for (let c = 0; c < Math.floor(n / 2); c++) {
+    const cx = (startCol + c * 2 + 1) * GRID_CELL;
+    pos.push({ x: cx, y: (rowTop + 0.5) * GRID_CELL, rot: 0 });
+    pos.push({ x: cx, y: (rowTop + 1.5) * GRID_CELL, rot: 0 });
   }
-  for (let c = 0; c < pairCols; c++) {
-    const cx = (col + c * 2 + 1) * GRID_CELL;
-    pos[c * 2] = { x: cx, y: (rowTop + 0.5) * GRID_CELL, rot: 0 };
-    pos[c * 2 + 1] = { x: cx, y: (rowTop + 1.5) * GRID_CELL, rot: 0 };
+  if (odd) {
+    pos.push({ x: (startCol + width - 0.5) * GRID_CELL, y: (rowTop + 1) * GRID_CELL, rot: 90 });
   }
   return pos;
 }

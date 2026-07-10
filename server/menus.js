@@ -72,7 +72,11 @@ async function fetchFacilityMenu(facilityId, date, dayCode) {
       }
     }
   }
-  return meals;
+  // Distinguish "closed" from "menu just not online yet": if the week's rota
+  // is published but today has no service (or no dishes), the mensa is known
+  // closed; if the rota itself is missing, the menu may simply not be up yet.
+  const status = meals.length > 0 ? 'open' : rota ? 'closed' : 'unknown';
+  return { meals, status };
 }
 
 export async function menusHandler(req, res) {
@@ -80,21 +84,23 @@ export async function menusHandler(req, res) {
   const menus = await Promise.all(
     LUNCH_PLACES.filter((p) => p.facilityId !== null).map(async (p) => {
       if (p.facilityId === ORIENT_FACILITY_ID) {
-        return { facilityId: p.facilityId, label: p.label, meals: ORIENT_MENU };
+        return { facilityId: p.facilityId, label: p.label, meals: ORIENT_MENU, status: 'open' };
       }
       const hit = cache.get(p.facilityId);
       if (hit && hit.date === date && Date.now() - hit.at < CACHE_MS) {
-        return { facilityId: p.facilityId, label: p.label, meals: hit.meals };
+        return { facilityId: p.facilityId, label: p.label, meals: hit.meals, status: hit.status };
       }
       try {
-        const meals = await fetchFacilityMenu(p.facilityId, date, dayCode);
-        cache.set(p.facilityId, { at: Date.now(), date, meals });
-        return { facilityId: p.facilityId, label: p.label, meals };
+        const { meals, status } = await fetchFacilityMenu(p.facilityId, date, dayCode);
+        cache.set(p.facilityId, { at: Date.now(), date, meals, status });
+        return { facilityId: p.facilityId, label: p.label, meals, status };
       } catch {
         // ETH API down or slow — fall back to today's last good menu if we
         // have one, else show the vote without menus rather than fail.
-        const meals = hit && hit.date === date ? hit.meals : [];
-        return { facilityId: p.facilityId, label: p.label, meals };
+        if (hit && hit.date === date) {
+          return { facilityId: p.facilityId, label: p.label, meals: hit.meals, status: hit.status };
+        }
+        return { facilityId: p.facilityId, label: p.label, meals: [], status: 'unknown' };
       }
     }),
   );

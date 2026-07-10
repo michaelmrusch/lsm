@@ -117,6 +117,9 @@ export interface FacilityMenu {
   facilityId: number;
   label: string;
   meals: Meal[];
+  // open = dishes online · closed = week published but no service today ·
+  // unknown = menu not online (yet)
+  status: 'open' | 'closed' | 'unknown';
 }
 
 export interface SpaceState {

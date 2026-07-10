@@ -10,8 +10,12 @@ const CANVAS = 2;
 const MIN_SCALE = 1 / CANVAS;
 const MAX_SCALE = 3;
 const FIT_VIEW = { scale: MIN_SCALE, tx: 0, ty: 0 };
-// Empty cells kept on every side of the tables when auto-framing.
-const FRAME_MARGIN = 3;
+// Breathing room around the tables when auto-framing: 1.5 cells beyond the
+// block's long side, which for the usual two-row strip leaves about three
+// visible grid squares of air above and below. Never tighter than the
+// classic 8-squares-across view.
+const FRAME_MARGIN = 1.5;
+const MIN_FRAME_CELLS = 8;
 
 function clampPos(v: number) {
   return Math.min(0.94, Math.max(0.06, v));
@@ -116,7 +120,7 @@ function framableView(tables: Table[], w: number, h: number): View {
     maxC = Math.max(maxC, p.leftCell + p.wc);
     maxR = Math.max(maxR, p.topCell + p.hc);
   }
-  const side = Math.max(maxC - minC, maxR - minR) + FRAME_MARGIN * 2; // square, >=3 cells/side
+  const side = Math.max(MIN_FRAME_CELLS, Math.max(maxC - minC, maxR - minR) + FRAME_MARGIN * 2);
   const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, 1 / (side * GRID_CELL * CANVAS)));
   const cx = ((minC + maxC) / 2) * GRID_CELL; // cluster centre, board fraction
   const cy = ((minR + maxR) / 2) * GRID_CELL;

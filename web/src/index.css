@@ -1596,6 +1596,15 @@ body {
   opacity: 0.5;
 }
 
+/* Non-interactive stand-in for the menu button when a mensa is closed. */
+.menu-closed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  opacity: 0.55;
+}
+
 .menu-photo {
   width: 100%;
   max-height: 220px;
