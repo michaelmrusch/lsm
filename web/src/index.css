@@ -393,17 +393,53 @@ body {
   transform-origin: 0 0;
 }
 
-/* Graph paper aligned to the half-table snap grid. Sized inline (one
-   square = one cell of the current window) and glides along with the
-   tables when the window reframes after an add/remove/move. */
+/* Graph paper aligned to the half-table snap grid. Image and sizing come
+   inline (line spacing thins out on big boards) and glide along with the
+   tables when the window reframes after an add/remove. */
 .room-grid {
   position: absolute;
   pointer-events: none;
-  background-image: linear-gradient(rgba(44, 54, 68, 0.7) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(44, 54, 68, 0.7) 1px, transparent 1px);
   transition: left 0.45s cubic-bezier(0.22, 1, 0.36, 1), top 0.45s cubic-bezier(0.22, 1, 0.36, 1),
     width 0.45s cubic-bezier(0.22, 1, 0.36, 1), height 0.45s cubic-bezier(0.22, 1, 0.36, 1),
     background-size 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* A programmatic reframe (add/remove, fit button) glides the camera too. */
+.room-canvas.animate {
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Canvas growth that must be invisible: no gliding while it happens. */
+.room-canvas.still .rtable,
+.room-canvas.still .room-grid {
+  transition: none;
+}
+
+/* The fixed sides of the real room, labelled like axes. */
+.room-wall {
+  position: absolute;
+  top: 50%;
+  z-index: 6;
+  writing-mode: vertical-rl;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  opacity: 0.7;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.room-wall-left {
+  left: 8px;
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.room-wall-right {
+  right: 8px;
+  transform: translateY(-50%);
 }
 
 .rtable-ghost {

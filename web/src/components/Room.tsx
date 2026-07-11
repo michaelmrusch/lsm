@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { Claim, Table } from '../types';
 import { claimColor } from '../util';
@@ -114,6 +114,24 @@ function windowFor(tables: Table[]): Win {
 
 const sameWin = (a: Win, b: Win) => a.c0 === b.c0 && a.r0 === b.r0 && a.side === b.side;
 
+// The smallest square window containing both — used to grow the canvas
+// without ever pulling it out from under someone's camera.
+function unionWin(a: Win, b: Win): Win {
+  const c0 = Math.min(a.c0, b.c0);
+  const r0 = Math.min(a.r0, b.r0);
+  const side = Math.min(
+    CELLS,
+    Math.max(Math.max(a.c0 + a.side, b.c0 + b.side) - c0, Math.max(a.r0 + a.side, b.r0 + b.side) - r0),
+  );
+  return {
+    c0: Math.max(0, Math.min(CELLS - side, c0)),
+    r0: Math.max(0, Math.min(CELLS - side, r0)),
+    side,
+  };
+}
+
+const idsOf = (ts: Table[]) => ts.map((t) => t.id).sort((a, b) => a - b).join(',');
+
 // board fraction -> % of the canvas (which shows exactly the window)
 function winLeft(win: Win, bx: number) {
   return ((bx * CELLS - win.c0) / win.side) * 100;
@@ -204,15 +222,72 @@ export function Room({
   // In auto mode the window tracks the tables. Any manual pan/zoom freezes
   // it (and unlocks the camera); the ⤢ button snaps both back.
   const [auto, setAuto] = useState(true);
+  const autoRef = useRef(auto);
+  autoRef.current = auto;
   const [win, setWin] = useState<Win>(() => windowFor(tables));
   const winRef = useRef(win);
   winRef.current = win;
+  const prevIds = useRef(idsOf(tables));
+  // glide: transform transitions on for a programmatic reframe.
+  // frozen: all transitions off for one commit, for invisible canvas growth.
+  const [glide, setGlide] = useState(false);
+  const glideTimer = useRef<number>();
+  const [frozen, setFrozen] = useState(false);
+
+  function pulseGlide() {
+    setGlide(true);
+    window.clearTimeout(glideTimer.current);
+    glideTimer.current = window.setTimeout(() => setGlide(false), 500);
+  }
+
+  // Grow the canvas to cover `needed` without moving anything on screen:
+  // the camera is rescaled/shifted to exactly cancel the window change, so
+  // the new space simply exists off-screen until someone pans over to it.
+  function growTo(needed: Win) {
+    const cur = winRef.current;
+    const next = unionWin(cur, needed);
+    if (sameWin(cur, next)) return;
+    const rect = outerRef.current?.getBoundingClientRect();
+    if (rect && rect.width > 0) {
+      const v = viewRef.current;
+      setView({
+        scale: (v.scale * next.side) / cur.side,
+        tx: v.tx + CANVAS * rect.width * (v.scale / cur.side) * (next.c0 - cur.c0),
+        ty: v.ty + CANVAS * rect.height * (v.scale / cur.side) * (next.r0 - cur.r0),
+      });
+    }
+    setWin(next);
+    setFrozen(true);
+  }
 
   useEffect(() => {
-    if (!auto) return;
-    const next = windowFor(tables);
-    setWin((w) => (sameWin(w, next) ? w : next));
-  }, [tables, auto]);
+    const ids = idsOf(tables);
+    const changed = ids !== prevIds.current;
+    prevIds.current = ids;
+    const needed = windowFor(tables);
+    if (changed && autoRef.current) {
+      // adding/removing tables re-tightens to the smallest frame, gliding
+      pulseGlide();
+      setWin((w) => (sameWin(w, needed) ? w : needed));
+      setView(FIT_VIEW);
+    } else {
+      // a plain move (or any change while manually zoomed) only ever
+      // grows the canvas — nobody's view shifts or pans because of it
+      growTo(needed);
+    }
+  }, [tables]);
+
+  useLayoutEffect(() => {
+    if (!frozen) return;
+    // Force a style recalc while transitions are off: without it a busy
+    // (or throttled) tab can skip straight from the old styles to the
+    // unfrozen state and replay the invisible growth as a visible glide.
+    void canvasRef.current?.offsetWidth;
+    const t = window.setTimeout(() => setFrozen(false), 100);
+    return () => window.clearTimeout(t);
+  }, [frozen]);
+
+  useEffect(() => () => window.clearTimeout(glideTimer.current), []);
 
   function cancelDrag() {
     dragRef.current = null;
@@ -389,16 +464,24 @@ export function Room({
     zoomAt(rect.width / 2, rect.height / 2, viewRef.current.scale * factor);
   }
 
-  // The graph paper is its own layer, one cell larger than the window on
-  // every side and anchored to whole board cells, so the lines stay glued
-  // to the snap grid even when the window is centred on a half cell.
-  const gridCells = win.side + 2;
+  // The graph paper is its own layer, anchored to whole board cells so the
+  // lines stay glued to the snap grid even when the window is centred on a
+  // half cell. On big boards the grid thins out in clean steps — past 12
+  // squares every second line goes at once (past 24, three of four) — so a
+  // large room shows the same calm grid instead of a mess of hairlines.
+  const step = win.side <= 12 ? 1 : win.side <= 24 ? 2 : 4;
+  const lineW = step === 1 ? 1 : 2;
+  const lineCol = 'rgba(44, 54, 68, 0.7)';
+  const gc0 = Math.floor(win.c0 / step) * step - step;
+  const gr0 = Math.floor(win.r0 / step) * step - step;
+  const gridCells = win.side + 4 * step;
   const gridStyle = {
-    left: `${((Math.floor(win.c0) - 1 - win.c0) / win.side) * 100}%`,
-    top: `${((Math.floor(win.r0) - 1 - win.r0) / win.side) * 100}%`,
+    left: `${((gc0 - win.c0) / win.side) * 100}%`,
+    top: `${((gr0 - win.r0) / win.side) * 100}%`,
     width: `${(gridCells / win.side) * 100}%`,
     height: `${(gridCells / win.side) * 100}%`,
-    backgroundSize: `${100 / gridCells}% ${100 / gridCells}%`,
+    backgroundImage: `linear-gradient(${lineCol} ${lineW}px, transparent ${lineW}px), linear-gradient(90deg, ${lineCol} ${lineW}px, transparent ${lineW}px)`,
+    backgroundSize: `${(step / gridCells) * 100}% ${(step / gridCells) * 100}%`,
   };
 
   return (
@@ -411,7 +494,7 @@ export function Room({
       onPointerCancel={bgPointerUp}
     >
       <div
-        className="room-canvas"
+        className={`room-canvas${glide ? ' animate' : ''}${frozen ? ' still' : ''}`}
         ref={canvasRef}
         style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})` }}
       >
@@ -479,6 +562,9 @@ export function Room({
           );
         })}
       </div>
+      {/* the fixed sides of the real room, so the layout reads like the space */}
+      <span className="room-wall room-wall-left">Fenster</span>
+      <span className="room-wall room-wall-right">Gang</span>
       <div className="zoom-controls">
         <button className="zoom-btn" onClick={() => buttonZoom(1.3)} aria-label="Zoom in">
           ＋
@@ -490,6 +576,8 @@ export function Room({
           className="zoom-btn"
           onClick={() => {
             setAuto(true);
+            pulseGlide();
+            setWin(windowFor(tables));
             setView(FIT_VIEW);
           }}
           aria-label="Fit the tables"
