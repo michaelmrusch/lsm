@@ -260,6 +260,32 @@ export function Room({
     setFrozen(true);
   }
 
+  // Re-tighten the canvas to `needed` (it may shrink), keeping the
+  // viewer's camera as close as possible: exact compensation first, then
+  // clamped back into the smaller room, with any visible correction
+  // gliding instead of jumping.
+  function shrinkTo(needed: Win) {
+    const cur = winRef.current;
+    if (sameWin(cur, needed)) return;
+    pulseGlide();
+    const rect = outerRef.current?.getBoundingClientRect();
+    if (rect && rect.width > 0) {
+      const v = viewRef.current;
+      setView(
+        clampView(
+          {
+            scale: (v.scale * needed.side) / cur.side,
+            tx: v.tx + CANVAS * rect.width * (v.scale / cur.side) * (needed.c0 - cur.c0),
+            ty: v.ty + CANVAS * rect.height * (v.scale / cur.side) * (needed.r0 - cur.r0),
+          },
+          rect.width,
+          rect.height,
+        ),
+      );
+    }
+    setWin(needed);
+  }
+
   useEffect(() => {
     const ids = idsOf(tables);
     const changed = ids !== prevIds.current;
@@ -270,9 +296,13 @@ export function Room({
       pulseGlide();
       setWin((w) => (sameWin(w, needed) ? w : needed));
       setView(FIT_VIEW);
+    } else if (changed) {
+      // even a manually zoomed camera re-tightens on add/remove — the
+      // canvas must not stay big once the tables no longer need it
+      shrinkTo(needed);
     } else {
-      // a plain move (or any change while manually zoomed) only ever
-      // grows the canvas — nobody's view shifts or pans because of it
+      // a plain move only ever grows the canvas — nobody's view shifts
+      // or pans because of it
       growTo(needed);
     }
   }, [tables]);
@@ -466,22 +496,21 @@ export function Room({
 
   // The graph paper is its own layer, anchored to whole board cells so the
   // lines stay glued to the snap grid even when the window is centred on a
-  // half cell. On big boards the grid thins out in clean steps — past 12
-  // squares every second line goes at once (past 24, three of four) — so a
-  // large room shows the same calm grid instead of a mess of hairlines.
-  const step = win.side <= 12 ? 1 : win.side <= 24 ? 2 : 4;
-  const lineW = step === 1 ? 1 : 2;
-  const lineCol = 'rgba(44, 54, 68, 0.7)';
-  const gc0 = Math.floor(win.c0 / step) * step - step;
-  const gr0 = Math.floor(win.r0 / step) * step - step;
-  const gridCells = win.side + 4 * step;
+  // half cell. Line thickness in canvas space is the inverse of the camera
+  // zoom, so every line renders at exactly one screen pixel at any zoom —
+  // uniform, never thinning out or disappearing.
+  const lineW = 1 / view.scale;
+  const lineCol = 'rgba(44, 54, 68, 0.45)';
+  const gc0 = Math.floor(win.c0) - 1;
+  const gr0 = Math.floor(win.r0) - 1;
+  const gridCells = win.side + 4;
   const gridStyle = {
     left: `${((gc0 - win.c0) / win.side) * 100}%`,
     top: `${((gr0 - win.r0) / win.side) * 100}%`,
     width: `${(gridCells / win.side) * 100}%`,
     height: `${(gridCells / win.side) * 100}%`,
     backgroundImage: `linear-gradient(${lineCol} ${lineW}px, transparent ${lineW}px), linear-gradient(90deg, ${lineCol} ${lineW}px, transparent ${lineW}px)`,
-    backgroundSize: `${(step / gridCells) * 100}% ${(step / gridCells) * 100}%`,
+    backgroundSize: `${(1 / gridCells) * 100}% ${(1 / gridCells) * 100}%`,
   };
 
   return (
