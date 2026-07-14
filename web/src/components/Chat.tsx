@@ -3,27 +3,31 @@ import type { ChatState } from '../types';
 
 export interface ChatActions {
   sendMessage(text: string): void;
-  setChatMuted(muted: boolean): void;
+  setChatNotify(enabled: boolean): void;
+  setBadgeHidden(hidden: boolean): void;
 }
 
 // A tiny support-widget-style chat pinned to the bottom-right corner:
-// collapsed it is just a square button (with an unread count unless muted),
-// expanded it is a minimal message panel for the people in the room today.
+// collapsed it is just a square button (with an unread count unless the badge
+// is switched off), expanded it is a minimal message panel for the people in
+// the room today.
 export function RoomChat({
   chat,
   userId,
   code,
   canChat,
+  notifyChat,
   actions,
 }: {
   chat: ChatState;
   userId: number;
   code: string;
   canChat: boolean;
+  notifyChat: boolean;
   actions: ChatActions;
 }) {
   const { messages } = chat;
-  const isMuted = chat.muted.includes(userId);
+  const badgeHidden = chat.badgeHidden.includes(userId);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   // Unread tracking is local: the id of the newest message this browser saw.
@@ -42,7 +46,7 @@ export function RoomChat({
     if (el) el.scrollTop = el.scrollHeight;
   }, [open, lastId, lastRead, code]);
 
-  const unread = isMuted ? 0 : messages.filter((m) => m.id > lastRead && m.userId !== userId).length;
+  const unread = badgeHidden ? 0 : messages.filter((m) => m.id > lastRead && m.userId !== userId).length;
 
   function send() {
     const t = text.trim();
@@ -66,10 +70,17 @@ export function RoomChat({
         <span className="chat-title">Room chat</span>
         <button
           className="icon-btn chat-icon"
-          title={isMuted ? 'Unmute: get notified about new messages' : 'Mute: no notifications, no unread badge'}
-          onClick={() => actions.setChatMuted(!isMuted)}
+          title={notifyChat ? 'Notifications on — tap to mute (same as in Settings)' : 'Notifications off — tap to unmute (same as in Settings)'}
+          onClick={() => actions.setChatNotify(!notifyChat)}
         >
-          {isMuted ? '🔕' : '🔔'}
+          {notifyChat ? '🔔' : '🔕'}
+        </button>
+        <button
+          className="icon-btn chat-icon"
+          title={badgeHidden ? 'Unread badge off — tap to show the count' : 'Unread badge on — tap to hide the count'}
+          onClick={() => actions.setBadgeHidden(!badgeHidden)}
+        >
+          {badgeHidden ? '⚪' : '🔴'}
         </button>
         <button className="icon-btn chat-icon" aria-label="Close" onClick={() => setOpen(false)}>
           ✕

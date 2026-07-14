@@ -391,15 +391,21 @@ export function Space() {
   const chatActions = {
     sendMessage: (text: string) =>
       void mutate(`/api/spaces/${code}/chat`, { method: 'POST', body: { text } }, { close: false }),
-    setChatMuted: async (muted: boolean) => {
-      const result = await mutate(`/api/spaces/${code}/chat/mute`, { method: 'POST', body: { muted } }, { close: false });
+    // The bell — chat push notifications. Mirror it into membership so the
+    // "Room chat" toggle in Settings reflects the change immediately (both are
+    // backed by the same notify_chat preference).
+    setChatNotify: async (enabled: boolean) => {
+      const result = await mutate(`/api/spaces/${code}/chat/mute`, { method: 'POST', body: { muted: !enabled } }, { close: false });
       if (result) {
         setMembership((current) => current ? {
           ...current,
-          notifications: { ...current.notifications, chat: !muted },
+          notifications: { ...current.notifications, chat: enabled },
         } : current);
       }
     },
+    // The unread badge — a chat-only switch, independent of notifications.
+    setBadgeHidden: (hidden: boolean) =>
+      void mutate(`/api/spaces/${code}/chat/badge`, { method: 'POST', body: { hidden } }, { close: false }),
   };
   // Writing needs a seat of your own today; reading is open to anyone here.
   const hasSeat = tables.some((t) => t.claims.some((c) => c.userId === user.id && !c.guestName));
@@ -469,7 +475,7 @@ export function Space() {
         />
       )}
 
-      <RoomChat chat={state.chat} userId={user.id} code={code} canChat={hasSeat} actions={chatActions} />
+      <RoomChat chat={state.chat} userId={user.id} code={code} canChat={hasSeat} notifyChat={membership?.notifications.chat ?? true} actions={chatActions} />
 
       {settings}
 

@@ -120,11 +120,13 @@ export interface ChatMessage {
   createdAt: number;
 }
 
-// Session-scoped room chat. muted lists users who opted out of pushes and
-// the unread badge; the log is wiped when the session ends.
+// Session-scoped room chat. badgeHidden lists users who turned off the unread
+// badge — a chat-window-only switch that does not affect push notifications
+// (those follow the space's chat notification preference). The log is wiped
+// when the session ends.
 export interface ChatState {
   messages: ChatMessage[];
-  muted: number[];
+  badgeHidden: number[];
 }
 
 export interface Meal {

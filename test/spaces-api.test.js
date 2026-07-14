@@ -80,7 +80,11 @@ test('membership preferences, layout reuse, ownership transfer, and leaving work
   assert.match(refreshEvent, new RegExp(`"spaceId":${spaceId}`));
   dashboardController.abort();
   assert.deepEqual(notificationRecipients(spaceId, [ownerId, nextOwnerId], 'activity'), [nextOwnerId]);
-  assert.ok(db.prepare('SELECT 1 FROM chat_mutes WHERE space_id = ? AND user_id = ?').get(spaceId, ownerId));
+  // Chat push is off now (chat:false), so the owner drops out of chat recipients.
+  assert.deepEqual(notificationRecipients(spaceId, [ownerId, nextOwnerId], 'chat'), [nextOwnerId]);
+  // The unread badge is a separate chat-window switch — a settings change must
+  // NOT create a chat_mutes row.
+  assert.ok(!db.prepare('SELECT 1 FROM chat_mutes WHERE space_id = ? AND user_id = ?').get(spaceId, ownerId));
 
   const opened = await request('/api/spaces/ABC234/sessions', {
     method: 'POST',

@@ -393,18 +393,12 @@ spacesRouter.patch('/:code/membership', (req, res) => {
     }
   }
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Nothing to change.' });
-  db.transaction(() => {
-    const sql = Object.keys(updates).map((key) => `${key} = ?`).join(', ');
-    db.prepare(`UPDATE space_members SET ${sql} WHERE space_id = ? AND user_id = ?`)
-      .run(...Object.values(updates), space.id, req.user.id);
-    if (updates.notify_chat !== undefined) {
-      if (updates.notify_chat) {
-        db.prepare('DELETE FROM chat_mutes WHERE space_id = ? AND user_id = ?').run(space.id, req.user.id);
-      } else {
-        db.prepare('INSERT OR IGNORE INTO chat_mutes (space_id, user_id) VALUES (?, ?)').run(space.id, req.user.id);
-      }
-    }
-  })();
+  // Notifications here (including notify_chat) only control push. The unread
+  // badge is a separate switch, toggled from the chat window, so settings must
+  // not touch chat_mutes.
+  const sql = Object.keys(updates).map((key) => `${key} = ?`).join(', ');
+  db.prepare(`UPDATE space_members SET ${sql} WHERE space_id = ? AND user_id = ?`)
+    .run(...Object.values(updates), space.id, req.user.id);
   broadcast(space.id, getSpaceState(space.code), true);
   res.json(membershipState(space.id, req.user.id));
 });
