@@ -37,8 +37,10 @@ export function timerForState(spaceId) {
     startedBy: t.started_by,
     startedByName: t.started_by_name,
     participants: db.prepare(`
-      SELECT p.user_id, u.username, u.color FROM timer_participants p
+      SELECT p.user_id, u.username, COALESCE(NULLIF(sm.color, ''), u.color) AS color FROM timer_participants p
       JOIN users u ON u.id = p.user_id
+      JOIN timers tm ON tm.id = p.timer_id
+      LEFT JOIN space_members sm ON sm.space_id = tm.space_id AND sm.user_id = p.user_id
       WHERE p.timer_id = ? ORDER BY p.joined_at, p.user_id
     `).all(t.id).map((p) => ({
       userId: p.user_id,

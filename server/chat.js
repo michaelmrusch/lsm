@@ -15,8 +15,10 @@ const KEEP = 200; // stored per space; the state ships the last 100
 export function chatForState(spaceId) {
   return {
     messages: db.prepare(`
-      SELECT m.id, m.user_id, m.body, m.created_at, u.username, u.color
+      SELECT m.id, m.user_id, m.body, m.created_at, u.username,
+        COALESCE(NULLIF(sm.color, ''), u.color) AS color
       FROM chat_messages m JOIN users u ON u.id = m.user_id
+      LEFT JOIN space_members sm ON sm.space_id = m.space_id AND sm.user_id = m.user_id
       WHERE m.space_id = ? ORDER BY m.id DESC LIMIT 100
     `).all(spaceId).reverse().map((m) => ({
       id: m.id,

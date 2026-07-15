@@ -48,7 +48,7 @@ test('existing databases receive layout, archive, and notification columns', () 
   const spaceColumns = new Set(db.prepare('PRAGMA table_info(spaces)').all().map((column) => column.name));
   const memberColumns = new Set(db.prepare('PRAGMA table_info(space_members)').all().map((column) => column.name));
   assert.ok(spaceColumns.has('last_layout'));
-  for (const name of ['archived', 'notify_setup', 'notify_activity', 'notify_votes', 'notify_timers', 'notify_chat']) {
+  for (const name of ['archived', 'notify_setup', 'notify_activity', 'notify_votes', 'notify_timers', 'notify_chat', 'color']) {
     assert.ok(memberColumns.has(name), `missing ${name}`);
   }
 });

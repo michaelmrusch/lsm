@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { db, gridPositions, tablePlacement, findFreeSpot, placementsOverlap, GRID_CELL, CELLS } from './db.js';
 import { requireAuth } from './auth.js';
 import { subscribe, broadcast } from './events.js';
-import { colorFor } from './colors.js';
+import { colorFor, PALETTE } from './colors.js';
 import { notifySpaceUsers } from './push.js';
 import { votesRouter, votesForState, clearVotes } from './votes.js';
 import { timersRouter, timerForState, clearTimers } from './timers.js';
@@ -30,8 +30,27 @@ function getSpaceRow(code) {
   return db.prepare('SELECT * FROM spaces WHERE code = ?').get(String(code).toUpperCase());
 }
 
+// Colors are unique within a space. A newcomer keeps their own color unless
+// someone already in the space is using it, in which case they are given a
+// random palette color nobody here has yet, remembered on their membership row.
+function assignSpaceColor(spaceId, userId) {
+  const used = new Set(db.prepare(`
+    SELECT u.id, COALESCE(NULLIF(m.color, ''), u.color) AS color
+    FROM space_members m JOIN users u ON u.id = m.user_id
+    WHERE m.space_id = ? AND m.user_id != ?
+  `).all(spaceId, userId).map((r) => colorFor({ id: r.id, color: r.color })));
+  const user = db.prepare('SELECT id, color FROM users WHERE id = ?').get(userId);
+  if (!used.has(colorFor(user))) return; // their own color is free here — keep it
+  const free = PALETTE.filter((c) => !used.has(c));
+  if (free.length === 0) return; // more members than palette colors — leave as-is
+  const pick = free[crypto.randomInt(free.length)];
+  db.prepare('UPDATE space_members SET color = ? WHERE space_id = ? AND user_id = ?').run(pick, spaceId, userId);
+}
+
 function addMember(spaceId, userId) {
-  db.prepare('INSERT OR IGNORE INTO space_members (space_id, user_id) VALUES (?, ?)').run(spaceId, userId);
+  const info = db.prepare('INSERT OR IGNORE INTO space_members (space_id, user_id) VALUES (?, ?)').run(spaceId, userId);
+  // Only a brand-new membership picks a color; existing members keep theirs.
+  if (info.changes > 0) assignSpaceColor(spaceId, userId);
 }
 
 function addParticipant(spaceId, userId) {
@@ -40,8 +59,9 @@ function addParticipant(spaceId, userId) {
 
 function tomorrowPledges(spaceId) {
   return db.prepare(`
-    SELECT ts.user_id, u.username, u.color FROM tomorrow_signups ts
+    SELECT ts.user_id, u.username, COALESCE(NULLIF(sm.color, ''), u.color) AS color FROM tomorrow_signups ts
     JOIN users u ON u.id = ts.user_id
+    LEFT JOIN space_members sm ON sm.space_id = ts.space_id AND sm.user_id = ts.user_id
     WHERE ts.space_id = ? AND ts.for_date >= ?
     ORDER BY ts.created_at, ts.user_id
   `).all(spaceId, zurichDate()).map((r) => ({
@@ -59,9 +79,10 @@ function canManageSpace(space, user) {
 
 function getClaims(spaceId) {
   return db.prepare(`
-    SELECT c.*, u.username, u.color AS user_color FROM claims c
+    SELECT c.*, u.username, COALESCE(NULLIF(sm.color, ''), u.color) AS user_color FROM claims c
     JOIN users u ON u.id = c.user_id
     JOIN tables t ON t.id = c.table_id
+    LEFT JOIN space_members sm ON sm.space_id = t.space_id AND sm.user_id = u.id
     WHERE t.space_id = ?
     ORDER BY c.created_at, c.id
   `).all(spaceId);
@@ -117,7 +138,7 @@ export function getSpaceState(code) {
         })),
     })),
     members: db.prepare(`
-      SELECT u.id, u.username, u.color FROM space_members m
+      SELECT u.id, u.username, COALESCE(NULLIF(m.color, ''), u.color) AS color FROM space_members m
       JOIN users u ON u.id = m.user_id
       WHERE m.space_id = ?
       ORDER BY u.username COLLATE NOCASE

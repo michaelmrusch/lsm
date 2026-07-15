@@ -38,9 +38,10 @@ export function votesForState(spaceId) {
     SELECT o.* FROM vote_options o JOIN votes v ON v.id = o.vote_id WHERE v.space_id = ? ORDER BY o.id
   `).all(spaceId);
   const ballots = db.prepare(`
-    SELECT b.option_id, b.user_id, u.username, u.color FROM vote_ballots b
+    SELECT b.option_id, b.user_id, u.username, COALESCE(NULLIF(sm.color, ''), u.color) AS color FROM vote_ballots b
     JOIN votes v ON v.id = b.vote_id
     JOIN users u ON u.id = b.user_id
+    LEFT JOIN space_members sm ON sm.space_id = v.space_id AND sm.user_id = b.user_id
     WHERE v.space_id = ?
     ORDER BY b.created_at, b.user_id
   `).all(spaceId);

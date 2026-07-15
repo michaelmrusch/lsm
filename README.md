@@ -115,6 +115,7 @@ flowchart LR
 - The home screen shows people counts and free-seat availability for every active space.
 - Tomorrow pledges give the next opener an early estimate of how many seats will be needed.
 - Admins can book a seat in another member's name, or reserve for a guest attributed to any member.
+- Colors are unique within a space: if yours is already taken when you join, you're given a random free one just for that space.
 
 ### Collaboration
 

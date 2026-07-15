@@ -118,3 +118,29 @@ test('membership preferences, layout reuse, ownership transfer, and leaving work
   assert.equal(left.response.status, 200);
   assert.equal(db.prepare('SELECT 1 FROM space_members WHERE space_id = ? AND user_id = ?').get(spaceId, ownerId), undefined);
 });
+
+test('joining a space with a color already in use gets a distinct one', async () => {
+  const red = '#ef5563';
+  const first = Number(db.prepare("INSERT INTO users (username, pin_hash, color) VALUES ('ColorOne', 'h', ?)").run(red).lastInsertRowid);
+  const second = Number(db.prepare("INSERT INTO users (username, pin_hash, color) VALUES ('ColorTwo', 'h', ?)").run(red).lastInsertRowid);
+  const third = Number(db.prepare("INSERT INTO users (username, pin_hash, color) VALUES ('ColorThree', 'h', ?)").run('#4f8cff').lastInsertRowid);
+  const tok = (id) => { const t = `clr-${id}`; db.prepare('INSERT INTO auth_tokens (token, user_id, expires_at) VALUES (?, ?, unixepoch() + 3600)').run(t, id); return `lsm_session=${t}`; };
+  const [c1, c2, c3] = [tok(first), tok(second), tok(third)];
+  const sid = Number(db.prepare("INSERT INTO spaces (code, name, owner_id, status) VALUES ('CLR234', 'Colors', ?, 'idle')").run(first).lastInsertRowid);
+  db.prepare('INSERT INTO space_members (space_id, user_id) VALUES (?, ?)').run(sid, first); // owner already in, keeps red
+
+  // Third (unique blue) joins BEFORE second, so only red is taken when it
+  // arrives and it must keep its blue. Joining second first would let its
+  // random reassignment land on blue, and then third would legitimately be
+  // moved off it too — a 1-in-9 flake rather than a real failure.
+  await fetch(`${base}/api/spaces/CLR234`, { headers: { Cookie: c3 } });
+  await fetch(`${base}/api/spaces/CLR234`, { headers: { Cookie: c2 } });
+  const state = await (await fetch(`${base}/api/spaces/CLR234`, { headers: { Cookie: c1 } })).json();
+  const colors = Object.fromEntries(state.members.map((m) => [m.username, m.color]));
+
+  assert.equal(colors.ColorOne, red);            // first stays put
+  assert.equal(colors.ColorThree, '#4f8cff');    // unique color kept
+  assert.notEqual(colors.ColorTwo, red);         // collider moved off red
+  assert.match(colors.ColorTwo, /^#[0-9a-f]{6}$/i);
+  assert.notEqual(colors.ColorTwo, colors.ColorThree);
+});

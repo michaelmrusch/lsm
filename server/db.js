@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS space_members (
   notify_votes INTEGER NOT NULL DEFAULT 1,
   notify_timers INTEGER NOT NULL DEFAULT 1,
   notify_chat INTEGER NOT NULL DEFAULT 1,
+  color TEXT NOT NULL DEFAULT '', -- per-space color; '' means use the user's own
   PRIMARY KEY (space_id, user_id)
 );
 
@@ -328,6 +329,12 @@ if (!hasColumn('space_members', 'notify_chat')) {
     SELECT 1 FROM chat_mutes cm
     WHERE cm.space_id = space_members.space_id AND cm.user_id = space_members.user_id
   )`);
+}
+
+// Per-space color override (empty = the user's own color). Existing members
+// keep their own color; uniqueness is only enforced from here on, at join time.
+if (!hasColumn('space_members', 'color')) {
+  db.exec("ALTER TABLE space_members ADD COLUMN color TEXT NOT NULL DEFAULT ''");
 }
 
 if (!hasColumn('tables', 'capacity')) {
