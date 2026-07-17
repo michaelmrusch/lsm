@@ -9,6 +9,14 @@ on:
   push:
     branches: [main]
 
+# Two pushes in quick succession must not race: the slower (older) build
+# would finish last and overwrite :latest with outdated code — this exact
+# thing shipped a stale image once. Newest push wins, older in-flight
+# builds are cancelled.
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
