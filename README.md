@@ -76,7 +76,7 @@ flowchart LR
   <tr>
     <td width="50%" valign="top">
       <h3>📲 Installable and notification-ready</h3>
-      LSM is a mobile-first PWA with Web Push for morning setup, room activity, votes, focus timers, and chat.
+      LSM is a mobile-first PWA with Web Push for morning setup, room activity, votes, focus timers, and chat. Light and dark themes follow your device, or pick one yourself.
     </td>
     <td width="50%" valign="top">
       <h3>🥙 Decisions without chat chaos</h3>
@@ -102,8 +102,8 @@ flowchart LR
 
 - Tables are draggable, rotatable in 90° steps, and adjustable from one to eight seats.
 - The room automatically frames the occupied layout while keeping space around the edges.
-- Seats use solid colors for people who are present and outlined colors for people who are coming.
-- Labels choose the fullest name that fits without shrinking the font.
+- Seats use solid colors for people who are present and outlined colors for people who are coming; free seats are outlined and labelled.
+- Labels choose the fullest name that fits without shrinking the font, and add the arrival time underneath when the seat is big enough to hold it.
 - Empty tables can be returned, reclaimed, or marked as taken by people outside the group.
 - A session automatically expires after 28 hours, while its group and members remain available.
 
@@ -199,6 +199,32 @@ That keeps the app reachable through the tunnel without exposing port `3000` pub
 | `PORT` | `3000` | Express HTTP port |
 | `DATA_DIR` | `./data` | SQLite database and generated VAPID keys |
 | `ADMIN_USERNAME` | — | Grants the matching account access to `/admin` |
+| `NAME_BLOCKLIST_FILE` | — | Optional absolute path to an extra name-policy JSON file; changes are picked up automatically |
+
+### Name policy
+
+New account names and guest reservations use the same case-insensitive name
+policy. It normalizes punctuation, spacing, accents, common Unicode lookalikes
+and leetspeak before checking a maintained English profanity dataset and the
+local list in `server/name-blocklist.json`. Admins can add and remove persistent
+deployment-specific rules immediately from the **Name blocklist** card on
+`/admin`; no restart is needed.
+
+To add deployment-specific entries without rebuilding the image, set
+`NAME_BLOCKLIST_FILE` to a mounted JSON file. It may contain any of these
+optional arrays:
+
+```json
+{
+  "blockedTerms": ["word blocked even inside a longer name"],
+  "blockedNames": ["exact full name"],
+  "allowedProfanityTerms": ["legitimate name exception"]
+}
+```
+
+The external entries extend the built-in list and are reloaded when the file
+changes. Existing accounts can still sign in after policy updates; the policy
+applies when registering a new account or reserving a new guest.
 
 <a id="architecture"></a>
 
@@ -221,7 +247,7 @@ flowchart LR
 
 | Layer | Technology | Role |
 |---|---|---|
-| Frontend | React 18, TypeScript, Vite | Mobile-first installable PWA |
+| Frontend | React 18, TypeScript, Vite | Mobile-first installable PWA, light/dark themed from CSS custom properties |
 | Backend | Node.js 24, Express | Authentication, room logic, API and static hosting |
 | Database | SQLite, `better-sqlite3` | Single-file persistence with foreign keys |
 | Realtime | Server-Sent Events | Live room refreshes |
