@@ -13,7 +13,7 @@
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.4.1",
     "cookie-parser": "^1.4.7",
-    "express": "^4.21.2",
+    "express": "^4.22.3",
     "obscenity": "^0.4.6",
     "web-push": "^3.6.7"
   },

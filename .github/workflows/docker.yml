@@ -8,6 +8,12 @@ name: docker image
 on:
   push:
     branches: [main]
+  # Rebuild weekly even without code changes, so security fixes in the base
+  # image (Node.js, Alpine, OpenSSL) reach :latest — a quiet repo once left
+  # the server running a three-month-old Node through a security release.
+  schedule:
+    - cron: '17 3 * * 1' # Mondays 03:17 UTC
+  workflow_dispatch: # "Run workflow" button for an urgent rebuild
 
 # Two pushes in quick succession must not race: the slower (older) build
 # would finish last and overwrite :latest with outdated code — this exact
@@ -24,20 +30,28 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to exact commits, not movable tags: this job can
+      # publish the image the server pulls automatically, so a hijacked tag
+      # (as happened to tj-actions/changed-files in 2025) would be a direct
+      # path onto the server. Bump the SHA together with the version comment.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: true
+          # always resolve node:24-alpine afresh, never a stale cached base
+          pull: true
           # latest for `docker compose pull`, the commit SHA for rollbacks
           tags: |
             ghcr.io/michaelmrusch/lsm:latest

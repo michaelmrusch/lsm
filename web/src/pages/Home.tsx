@@ -22,7 +22,11 @@ export function Home() {
   const { user, loading, signIn, signOut } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const next = searchParams.get('next');
+  // `next` arrives in a link anyone can craft, so only the app's own pages
+  // are honored — anything else (//evil.com, /\evil.com, …) would turn the
+  // sign-in screen into an open redirect to a look-alike phishing page.
+  const nextParam = searchParams.get('next') ?? '';
+  const next = /^\/(admin|new|s\/[A-Za-z0-9]{1,12})?$/.test(nextParam) ? nextParam : null;
 
   const [username, setUsername] = useState(() => localStorage.getItem('lsm.lastName') ?? '');
   const [pin, setPin] = useState('');
@@ -96,7 +100,7 @@ export function Home() {
 
   function submitJoin(e: FormEvent) {
     e.preventDefault();
-    const code = joinCode.trim().toUpperCase();
+    const code = joinCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (code) navigate(`/s/${code}`);
   }
 

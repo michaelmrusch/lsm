@@ -17,6 +17,46 @@ webpush.setVapidDetails('mailto:michael.m.rusch@bluewin.ch', vapid.publicKey, va
 
 export const vapidPublicKey = vapid.publicKey;
 
+// The server POSTs to whatever endpoint a subscription names, so an
+// unchecked endpoint is a server-side request forgery hole: anyone signed in
+// could point it at http://192.168.x.x/… or another service on the home
+// network and have this server fire requests at it on every notification.
+// Real subscriptions only ever point at the browsers' push services.
+const PUSH_HOSTS = new Set([
+  'fcm.googleapis.com', // Chrome, Edge, Brave, Opera, Samsung Internet
+  'android.googleapis.com', // older Chrome subscriptions
+  'updates.push.services.mozilla.com', // Firefox
+]);
+const PUSH_HOST_SUFFIXES = [
+  '.push.apple.com', // Safari / iOS home-screen apps
+  '.notify.windows.com', // legacy Edge / Windows (WNS)
+];
+
+export function isPushEndpointAllowed(endpoint) {
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:' || url.port !== '' || url.username || url.password) return false;
+  const host = url.hostname.toLowerCase();
+  return PUSH_HOSTS.has(host) || PUSH_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
+export function isValidSubscription(sub) {
+  return (
+    !!sub &&
+    typeof sub.endpoint === 'string' &&
+    sub.endpoint.length <= 2048 &&
+    isPushEndpointAllowed(sub.endpoint) &&
+    typeof sub.keys?.p256dh === 'string' &&
+    typeof sub.keys?.auth === 'string' &&
+    sub.keys.p256dh.length <= 256 &&
+    sub.keys.auth.length <= 64
+  );
+}
+
 export function saveSubscription(userId, subscription) {
   db.prepare(`
     INSERT INTO push_subscriptions (endpoint, user_id, subscription) VALUES (?, ?, ?)
@@ -34,6 +74,9 @@ export function notifyUsers(userIds, payload) {
   const subs = db.prepare(`SELECT * FROM push_subscriptions WHERE user_id IN (${placeholders})`).all(...userIds);
   const data = JSON.stringify(payload);
   for (const row of subs) {
+    // Re-checked at send time too: rows stored before the endpoint
+    // allowlist existed must never be contacted.
+    if (!isPushEndpointAllowed(row.endpoint)) continue;
     // High urgency so Android/Chrome (which delivers web push via FCM) wakes
     // the device and shows it now. Without this the Web Push default urgency is
     // "normal", which Android holds in Doze until the phone next wakes on its

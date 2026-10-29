@@ -121,6 +121,15 @@ authRouter.post('/session', (req, res) => {
   if (!isBootstrap && !inviteCode) {
     return res.status(403).json({ error: 'This name is new here — ask an admin for a one-time invite code to register.' });
   }
+  // Check the code before paying for a bcrypt hash: otherwise every bogus
+  // attempt burns ~70 ms of synchronous CPU, so a handful of requests per
+  // second would stall the whole server. Wrong codes count as failures for
+  // this IP, which also stops anyone guessing codes. (Redemption below
+  // stays transactional, so two people still can't share one code.)
+  if (!isBootstrap && !db.prepare('SELECT 1 FROM invite_codes WHERE code = ? AND used_at IS NULL').get(inviteCode)) {
+    recordFailure([`ip:${req.ip}`]);
+    return res.status(403).json({ error: 'That invite code is not valid (or was already used).' });
+  }
 
   let user;
   try {
